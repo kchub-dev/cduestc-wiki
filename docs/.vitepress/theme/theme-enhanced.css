@@ -1,0 +1,39 @@
+/* stylelint-disable-next-line selector-class-pattern */
+.VPMenuGroup > .title {
+    font-size: 11px;
+}
+
+/* stylelint-disable-next-line selector-class-pattern */
+.VPSwitch > .check {
+    bottom: 1px;
+    width: auto;
+    height: auto;
+    aspect-ratio: 1;
+}
+
+.vp-doc a {
+    background: linear-gradient(var(--vp-c-brand-soft), var(--vp-c-brand-soft)) no-repeat center bottom / 100% 2px;
+    text-decoration: none;
+    transition: 0.2s;
+}
+
+.vp-doc a:hover {
+    border-radius: 0.2em;
+    background: linear-gradient(var(--vp-c-brand-soft), var(--vp-c-brand-soft)) no-repeat center bottom / 100% 100%;
+}
+
+.vp-doc strong {
+    background: linear-gradient(var(--vp-c-brand-soft), var(--vp-c-brand-soft)) no-repeat center bottom / 100% 40%;
+}
+
+.vp-doc s {
+    opacity: 0.6;
+}
+
+.vp-doc .custom-block {
+    padding: 8px 16px;
+}
+
+.vp-doc .custom-block :first-child:first-child {
+    margin: 8px 0;
+}

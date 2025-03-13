@@ -1,9 +1,9 @@
 # 友情链接
 
-## 校内组织
+## 校内友链
 
-- [KC 导航](https://cooo.site) (电子科技大学成都学院网址导航服务)
-- [科成MC](https://mc.cduestc.fun/) (电子科技大学成都学院 MC 交流群体)
+- [KC导航](https://nav.cduestc.fun) (电子科技大学成都学院网址导航服务)
+- [科成MC](https://craft.cduestc.fun/) (电子科技大学成都学院 MC 交流群体)
 
 ## 其他 Wiki
 

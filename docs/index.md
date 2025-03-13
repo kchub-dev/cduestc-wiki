@@ -13,12 +13,9 @@ hero:
     - text: 开始阅读
       theme: brand
       link: /overview
-    - text: 实验室/码农频道
-      theme: alt
-      link: /coder
     - text: KC导航
       theme: alt
-      link: https://cooo.site
+      link: https://nav.cduestc.fun/
     - text: 项目介绍
       theme: alt
       link: /project

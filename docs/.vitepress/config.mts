@@ -28,7 +28,7 @@ export default defineConfig({
         outline: { level: [2, 3], label: '目录' },
         returnToTopLabel: '返回顶部',
         editLink: {
-            pattern: 'https://github.com/cduestc-wiki/cduestc-wiki/blame/main/docs/:path',
+            pattern: 'https://github.com/kchub-dev/cduestc-wiki/',
             text: '源代码',
         },
         lastUpdated: {
@@ -39,7 +39,7 @@ export default defineConfig({
 
         footer: {
             message: '公益项目。与任何组织无关。Made with ❤.',
-            copyright: `© ${new Date().getFullYear()} <a href="https://github.com/xupt-wiki">科成星球项目组</a>`,
+            copyright: `© ${new Date().getFullYear()} <a href="https://github.com/kchub-dev">科成星球项目组</a>`,
         },
     },
 

@@ -1,20 +1,20 @@
 /* stylelint-disable selector-class-pattern */
 :root {
     --vp-c-default-soft: #bbb3;
-    --vp-c-brand-1: #06d;
-    --vp-c-brand-2: #003da5;
-    --vp-c-brand-3: #07f;
-    --vp-c-brand-soft: #07f2;
+    --vp-c-brand-1: #f60;
+    --vp-c-brand-2: #e05d00;
+    --vp-c-brand-3: #ff8533;
+    --vp-c-brand-soft: #f602;
     --vp-home-hero-name-color: transparent;
     --vp-home-hero-name-background: linear-gradient(30deg, var(--vp-c-brand-3), var(--vp-c-brand-2));
     --vp-home-hero-image-filter: blur(240px);
 }
 
 .dark:root {
-    --vp-c-brand-1: #3af;
-    --vp-c-brand-2: #7cf;
+    --vp-c-brand-1: #ff8533;
+    --vp-c-brand-2: #ffaa66;
 
-    /* --vp-c-brand-soft: #33aaff55; */
+    /* --vp-c-brand-soft: #ff853355; */
 }
 
 .vp-doc {
@@ -43,13 +43,15 @@
     color: var(--vp-c-divider);
 }
 
+/* ###三级标题前的图标 */
 .vp-doc h3::before {
     content: "";
     display: inline-block;
-    width: 1em;
-    height: 1em;
-    margin-right: 0.3em;
+    width: 1.5em;
+    height: 1.5em;
+    margin-right: 0.4em;
     background: url("/logo.svg") no-repeat;
+    background-size: contain;
     vertical-align: middle;
 }
 

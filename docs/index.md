@@ -4,8 +4,8 @@ layout: home
 
 hero:
   name: 科成星球
-  text: 电子科技大学成都学院非官方校园生活指南
-  tagline: 由科成星球项目组用❤开发
+  text: 电子科技大学成都学院校园生活指南
+  tagline: 数字校园办公室&网络管理委员会
   image:
     src: /logo.svg
     alt: 科成 Wiki 项目组群头像
@@ -13,7 +13,7 @@ hero:
     - text: 开始阅读
       theme: brand
       link: /overview
-    - text: KC导航
+    - text: 科成导航
       theme: alt
       link: https://nav.cduestc.fun/
     - text: 项目介绍
@@ -21,36 +21,40 @@ hero:
       link: /project
 
 features:
+  - title: 校园情况
+    icon: 🏫
+    details: 校区介绍、学院介绍
+    link: /campus
   - title: 住宿生活
     icon: 🏠
     details: 宿舍信息、环境配置、缴费
     link: /campus/accommodation
-  - title: 入学办理
+  - title: 入学事项
     icon: 📝
-    details: 空调、饮水机、校园网
-    link: /campus/enrollment
-  - title: 防骗指南
-    icon: 🚨
-    details: 线上付款要谨慎
-    link: /campus/anti-fraud
+    details: 报到流程、缴费、入学须知、防骗指南
+    link: /campus/entrance
   - title: 手机必备APP
     icon: 📱
     details: 课堂学习、组织培训、生活APP
     link: /campus/apps
-  - title: 课程安排
+  - title: 信息查询
     icon: 📚
-    details: 课程表、课表查询
-    link: /study/curriculum
+    details: 课表、绩点、学分、图书查询
+    link: /study/query
   - title: 快递与外卖
     icon: 📦
     details: 收货地址
     link: /life/delivery
-  - title: 美食推荐
-    icon: 🍽️
-    details: 😋
-    link: /life/food
-  - title: 校园墙
+  - title: 周边信息
+    icon: ✨
+    details: 周边美食、娱乐、景点、交通
+    link: /life/nearby
+  - title: 第三方社区
     icon: 📷
     details: 表白墙、校园社区
     link: /life/forum
 ---
+
+<!-- --- -->
+
+<!--![电子科技大学成都学院](/image.png)-->

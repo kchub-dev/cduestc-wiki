@@ -1,7 +1,7 @@
 <template>
     <div class="not-found">
         <img class="logo" src="" alt="">
-        <h1>页面未找到</h1>
+        <h1>页面被怪兽吃掉了</h1>
         <a class="button" href="/">返回主页</a>
     </div>
 </template>

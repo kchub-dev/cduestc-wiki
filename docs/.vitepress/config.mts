@@ -38,7 +38,7 @@ export default defineConfig({
         docFooter: { prev: '上一篇', next: '下一篇' },
 
         footer: {
-            message: '公益项目。与任何组织无关。Made with ❤.',
+            message: '由数字校园办公室提供信息支持，科成星球开发组负责',
             copyright: `© ${new Date().getFullYear()} <a href="https://github.com/kchub-dev">科成星球项目组</a>`,
         },
     },
@@ -56,11 +56,11 @@ export default defineConfig({
 
 function nav(): DefaultTheme.NavItem[] {
     return [
-        { text: '实验室/码农频道', link: '/coder' },
+        { text: '保留页面', link: '/coder' },
         { text: '校园', link: '/campus/', activeMatch: '^/campus/' },
         { text: '学习', link: '/study/', activeMatch: '^/study/' },
         { text: '生活', link: '/life/', activeMatch: '^/life/' },
-        { text: 'KC导航', link: 'https://cooo.site/' },
+        { text: '科成导航', link: 'https://nav.cduestc.fun' },
         {
             text: '关于',
             items: [
@@ -81,7 +81,6 @@ function sidebar(): DefaultTheme.Sidebar {
                 items: [
                     { text: '写在开头', link: '/overview' },
                     { text: '项目介绍', link: '/project' },
-                    { text: '信息查询服务', link: '/info-services' },
                 ],
             },
             {

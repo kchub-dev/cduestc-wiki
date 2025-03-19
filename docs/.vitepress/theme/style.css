@@ -1,5 +1,30 @@
 /* stylelint-disable selector-class-pattern */
+/* 定义自定义字体 */
+@font-face {
+    font-family: 'MapleMono-1';
+    src: url('/MapleMono-NF-CN-Bold.ttf') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'writefont';
+    src: url('/ChenYuluoyan-2.0-Thin.ttf') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'MapleMono-2';
+    src: url('/MapleMono-NF-CN-Light.ttf') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+
 :root {
+    /* 设置全局字体 */
+    --vp-font-family-base: 'MapleMono-2', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
     --vp-c-default-soft: #bbb3;
     --vp-c-brand-1: #f60;
     --vp-c-brand-2: #e05d00;

@@ -3,12 +3,13 @@ export interface AppProps {
     name: string
     icon: string
     desc: Array<string> | string
+    link?: string
 }
 defineProps<AppProps>()
 </script>
 
 <template>
-    <div class="app-card">
+    <a class="app-card" :href="link" target="_blank" :class="{ 'clickable': link }">
         <div class="app-info">
             <img :src="icon" class="app-icon" alt="">
             <span class="app-name">{{ name }}</span>
@@ -23,7 +24,7 @@ defineProps<AppProps>()
                 <p>{{ desc }}</p>
             </template>
         </div>
-    </div>
+    </a>
 </template>
 
 <style scoped>
@@ -35,6 +36,15 @@ defineProps<AppProps>()
     padding: 1em;
     border-radius: 0.5em;
     background-color: var(--vp-c-bg-soft);
+    text-decoration: none;
+    color: inherit;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.app-card.clickable:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+    cursor: pointer;
 }
 
 .app-info {

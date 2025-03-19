@@ -1,15 +1,16 @@
 ---
 aside: false
+author: [Dnyo666]
 ---
 
 <script setup>
-import memberData from '/.vitepress/data/member.ts'
-import MemberList from '/.vitepress/components/MemberList.vue'
+import memberData from '/.vitepress/data/members.json'
+import MemberList from '/.vitepress/components/unique/MemberList.vue'
 </script>
 
 # 关于我们
 
-科成星球项目组由 浅巷墨黎 牵头成立于 2025-03-10，目前正在撰写内容。
+西邮 Wiki 项目组由 g0ubu1i 牵头成立于 2024-06-30，目前正在撰写内容。
 
 ## 项目组成员
 

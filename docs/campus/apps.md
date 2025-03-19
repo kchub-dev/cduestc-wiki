@@ -4,6 +4,7 @@ study:
   chaoxing:
     name: 学习通
     icon: https://p19.qhimg.com/t01e56f9a7cebff2ea2.png
+    link: https://i.chaoxing.com
     desc:
       - 多数课程均在此
       - 不要忘记期末考试

@@ -1,53 +1,45 @@
 ---
 aside: false
 study:
+  dingtalk:
+    name: 钉钉
+    icon: https://tvax2.sinaimg.cn/large/008IDFKely1hznj19cih7j30m80m80w6.jpg
+    link: https://www.dingtalk.com/download#/
+    desc:
+      - 班群、通知、文件
+      - 钉工牌、育才工程
   chaoxing:
     name: 学习通
     icon: https://p19.qhimg.com/t01e56f9a7cebff2ea2.png
-    link: https://i.chaoxing.com
+    link: https://app.chaoxing.com/
     desc:
-      - 多数课程均在此
-      - 不要忘记期末考试
-  unipus:
-    name: U校园
-    icon: http://p18.qhimg.com/t015ca67b31f18fc4e3.png
-    desc: 大学英语要用
+      - 签到上课，平时课程
+      - 不要忘记科成计划
   icourse163:
     name: 中国大学MOOC
     icon: http://p17.qhimg.com/t0155917bbe9d6eabc9.png
+    link: https://www.icourse163.org/
     desc:
-      - 一部分课程要用
-      - 注意作业截止时间
-  yuketang:
-    name: 雨课堂
-    icon: http://p16.qhimg.com/t01e315ad2852d5b7c6.png
-    desc: 一部分课程要用
-  mosoteach:
-    name: 云班课
-    icon: http://p15.qhimg.com/t012d99363e7640f5ba.png
-    desc:
-      - 操作系统上课用
-      - 签到/作业有💩摇一摇广告
-      - 搭配云教材APP使用
+      - 自学必备
+      - 定期摄入知识
+  yiban:
+    name: 易班
+    icon: https://tvax2.sinaimg.cn/large/008IDFKely1hzn9bmf8y6j30e80e8gmd.jpg
+    link: https://www.yiban.cn/mobile/index.html
+    desc: 在线科成考试
   daxuesoutijiang:
     name: 大学搜题酱
     icon: http://p19.qhimg.com/t01d349081b85401905.png
+    link: https://www.daxuesoutijiang.com/
     desc:
       - 拍照搜题
       - 查习题册答案
-      - 夸克APP也挺好用
-  tishineng:
-    name: 体适能
-    icon: http://file.market.xiaomi.com/thumbnail/PNG/l62/AppStore/030f185b65da24325a716e41b42724479524d6685
-    desc:
-      - 体育选课
-      - 体育理论考试
-  budaolepao:
-    name: 步道乐跑
-    icon: http://p18.qhimg.com/t01af7dbe39618208df.png
-    desc:
-      - 校园跑，一学期80km左右
-      - aka 步道乐骑，步道乐摇
+  keep:
+    name: KEEP
+    icon: https://tvax1.sinaimg.cn/large/008IDFKely1hzn9hk211cj30cl0cl3yx.jpg
+    link: https://www.gotokeep.com/
+    desc: 校园跑
+
 
 org:
   zhiyuanhui:
@@ -57,40 +49,50 @@ org:
   xuexi:
     name: 学习强国
     icon: http://p15.qhimg.com/t01e6a78df67ae66ca9.png
+    link: https://www.xuexi.cn/
     desc:
-      - 相关作业文档参考
-      - 入组织需学习公社APP
+      - 党员必备
+  tencentmeeting:
+    name: 腾讯会议
+    icon: https://tvax4.sinaimg.cn/large/008IDFKely1hznjd4fchhj3074074glh.jpg
+    link: https://meeting.tencent.com/download/
+    desc:
+      - 部门线上会议
+      - 老师线上课程
 
 life:
   cainiao:
     name: 菜鸟
     icon: http://p16.qhimg.com/dr/_72_/t01950c338d20f6ccaa.png
     desc: 查快递、取快递
-  yundaren:
-    name: 云达人
-    icon: http://p18.qhimg.com/t011e18028f5c93e2a1.png
+  huiyou:
+    name: 汇优
+    icon: https://tvax3.sinaimg.cn/large/008IDFKely1hzn9l3kotqj3074074wec.jpg
+    link:
     desc:
-      - 长安校区东/西区洗澡
-      - APP设置使用码，洗澡无需手机
-  hlsh:
-    name: 海乐生活
-    icon: https://p0.qhimg.com/t0127c180245cf04171.png
+      - 什邡校区 寝室热水
+      - 仅支持支付宝充值
+  pgsh:
+    name: 胖乖生活
+    icon: https://tvax1.sinaimg.cn/large/008IDFKely1hzn9nj7dc7j305c05cjr7.jpg
+    link: 
     desc:
-      - 长安校区公共洗衣机
-      - (微信、支付宝小程序)
-  qiegongxiang:
-    name: 企鹅共享APP服务
-    icon: https://yyb-community-1258344701.file.myqcloud.com/wx_mini_app_icon/wx52cfa5fc8d32a43d.png
+      - 公共洗衣机
+      - 垃圾软件，一堆广告
+
+weixin:
+  kecheng:
+    name: 科成云生活
+    icon: https://tvax2.sinaimg.cn/large/008IDFKely1hznkki4lfqj30hs0hs0to.jpg
     desc:
-      - 雁塔校区公共洗衣机
-      - (微信小程序)
+      - 校内外卖、桶装水、超市
 ---
 
 <script setup>
 import AppList from "/.vitepress/components/AppList.vue";
 </script>
 
-# 手机上的 APP 们
+# 科成必备APP
 
 ## 课堂学习
 
@@ -103,3 +105,7 @@ import AppList from "/.vitepress/components/AppList.vue";
 ## 生活
 
 <AppList :data="$frontmatter.life" />
+
+## 小程序&公众号
+
+<AppList :data="$frontmatter.weixin" />

@@ -10,7 +10,7 @@ import MemberList from '/.vitepress/components/unique/MemberList.vue'
 
 # 关于我们
 
-西邮 Wiki 项目组由 g0ubu1i 牵头成立于 2024-06-30，目前正在撰写内容。
+ 科成星球 项目组由 浅巷墨黎 牵头成立于 2025-03-10，目前正在撰写内容。
 
 ## 项目组成员
 

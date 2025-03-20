@@ -26,8 +26,8 @@
     /* 设置全局字体 */
     --vp-font-family-base: 'MapleMono-2', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
     --vp-c-default-soft: #bbb3;
-    --vp-c-brand-1: #f60;
-    --vp-c-brand-2: #e05d00;
+    --vp-c-brand-1: rgba(255, 113, 18, 0.781);
+    --vp-c-brand-2: #e5701d;
     --vp-c-brand-3: #ff8533;
     --vp-c-brand-soft: #f602;
     --vp-home-hero-name-color: transparent;

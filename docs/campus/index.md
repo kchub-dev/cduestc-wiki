@@ -1,5 +1,5 @@
 ---
-author: [L33Z22L11]
+author: [Dnyo666]
 ---
 # 校园
 
@@ -24,7 +24,6 @@ author: [L33Z22L11]
 ::: tip 电子科技大学成都学院位于成都市高新西区
 :::
 
-<AppList :data="$frontmatter.study" />
 
 <AMapView 
   :locations="[
@@ -102,7 +101,6 @@ author: [L33Z22L11]
 - 操场
   - 一楼：器材室、乒乓球馆、健身室
   - 二楼：社团活动室
-### 生活
 
 ## 校园导航
 

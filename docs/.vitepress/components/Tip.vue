@@ -7,6 +7,7 @@ const props = defineProps<{
     tip?: string
     icon?: string | boolean
     copy?: boolean
+    details?: boolean
 }>()
 
 const tip = computed(() => props.tip || (props.copy ? '点击复制' : ''))
@@ -21,10 +22,21 @@ const icon = computed(() => props.icon
 </script>
 
 <template>
+    <template v-if="props.details">
+    <details>
+        <summary ref="tip-text" v-tip="tip" class="tip" @click="props.copy && copy()">
+            <slot>{{ text }}</slot>
+            <Icon v-if="typeof icon === 'string'" :icon class="tip-icon" />
+        </summary>
+        <slot name="content"></slot>
+    </details>
+</template>
+<template v-else>
     <span ref="tip-text" v-tip="tip" class="tip" @click="props.copy && copy()">
         <slot>{{ text }}</slot>
         <Icon v-if="typeof icon === 'string'" :icon class="tip-icon" />
     </span>
+</template>
 </template>
 
 <style scoped>

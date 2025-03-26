@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import MemberCard from "/.vitepress/components/MemberCard.vue";
+import MemberCard from "../.vitepress/components/unique/MemberCard.vue";
 </script>
 
 # 美食推荐

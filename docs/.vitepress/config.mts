@@ -88,8 +88,9 @@ function sidebar(): DefaultTheme.Sidebar {
                 link: '/campus/',
                 collapsed: true,
                 items: [
-                    { text: '本科专业列表', link: '/campus/major' },
-                    { text: '住宿生活', link: '/campus/accommodation' },
+                    { text: '历史文化', link: '/campus/culture' },
+                    { text: '学院情况', link: '/campus/academy' },
+                    { text: '专业列表', link: '/campus/major' },
                     { text: '入学准备与办理', link: '/campus/enrollment' },
                     { text: '防骗', link: '/campus/anti-fraud' },
                     { text: '手机必备APP', link: '/campus/apps' },
@@ -121,6 +122,7 @@ function sidebar(): DefaultTheme.Sidebar {
                 link: '/life/',
                 collapsed: true,
                 items: [
+                    { text: '住宿生活', link: '/life/accommodation' },
                     { text: '校园墙/社区/二手交易', link: '/life/forum' },
                     { text: '快递和外卖', link: '/life/delivery' },
                     { text: '美食推荐', link: '/life/food' },

@@ -1,5 +1,6 @@
 ---
 aside: false
+author: [Dnyo666]
 study:
   dingtalk:
     name: 钉钉

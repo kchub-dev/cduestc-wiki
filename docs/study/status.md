@@ -1,55 +1,31 @@
-# 学号、学籍
-
-<Disclaimer />
+# 学号与学籍
 
 ## 学号
 
-从2024级开始，学号格式为 `YYTCCMMNNN`，先前的为 `CCYYMNNN`，其中：
+学号的格式为yyyyjxxccnnww，为十三位
 
-- `YY`：入学年份
-- `T`：可能是学籍类型
-- `CC`：学院代码
-- `M`：专业代码
-- `NNN`：专业内学生序号
+**yyyy：**入学年份
 
-参见：[2022级新生分班编号注意事项](https://jyc.xupt.edu.cn/info/1167/3264.htm)。
+**j：**可能为学籍类型
 
-## 转专业
+**xx：**学院代码
 
-::: tip 参考资料
-- [西安邮电大学本科生转专业管理办法（试行）](https://jyc.xupt.edu.cn/info/1035/1563.htm)
-- 2023级本科生转专业各学院接收条件及选拔办法一览表
-:::
+**cc:**专业代码
 
-转专业一般需要满足以下原则：
+**nn:**班级
 
-- 转向的专业不能高于高考录取批次
-  - 例如一些省份本科第二批录取的不可转到本科第一批专业
-  - 如果某专业在高考省份不招生，则默认可转
-- 不可跨专业组转专业
-  - 例如物理组不可转到化学组专业
-- 不得有补考、重修科目
-  - 尤其是大一第一学期
+**ww:**座位号
 
-### 转专业难度
+## 学籍
 
-### 转专业时间
+学籍管理是学校学生管理的重要组成部分，它是对学生学习资格、学习状态和结果的认定。建立健全学籍管理制度，是学校依法实施教学管理，保障教学活动顺利进行的基本依据，同时又是对学生在校学习生活的具体行为的规范和要求。
 
-一般在大一第二学期的5月之后会发通知。
+学籍管理的范围主要包括:学习年限、入学与注册、考核与成绩记载、休学与复学、转学与退学、毕业与结业，颁发学历证书与学位证书等管理活动。
 
-### 补齐新专业课程
+- **[电子科技大学成都学院学籍管理](https://docs.qq.com/aio/DVWZ4WUN0c3FzaUtt?u=3ca4f3eff1c14da7b5a72d7985bb28c7&no_promotion=1&p=PLB0wwuHZFVKBMNT0ppn4p)**
 
-::: warning
-转向通信工程需要补齐的课程较多，大概率转入后分入下一届班级。转入其他专业一般分入同届班级中。
-:::
+- **[电子科技大学成都学院休学申请书](https://docs.qq.com/aio/DVWZ4WUN0c3FzaUtt?u=3ca4f3eff1c14da7b5a72d7985bb28c7&no_promotion=1&p=PLB0wwuHZFVKBMNT0ppn4p)**
 
-对于相同科目的不同种类（例如`大学物理A1+大学物理A2`和`大学物理B`），学分无法转换，需要重修对应课程。
+- **[电子科技大学成都学院复学申请书](https://docs.qq.com/aio/DVWZ4WUN0c3FzaUtt?u=3ca4f3eff1c14da7b5a72d7985bb28c7&no_promotion=1&p=PLB0wwuHZFVKBMNT0ppn4p)**
 
-## 学籍异动
-
-- [西安邮电大学复学流程](https://jyc.xupt.edu.cn/info/1158/2530.htm)
-- [西安邮电大学留级流程](https://jyc.xupt.edu.cn/info/1158/2531.htm)
-- [西安邮电大学退学流程](https://jyc.xupt.edu.cn/info/1158/2533.htm)
-- [西安邮电大学休学流程](https://jyc.xupt.edu.cn/info/1158/2534.htm)
-
-更多信息请参阅[西安邮电大学教务处官网学生工作流程](https://jyc.xupt.edu.cn/gzlc/xs.htm)。
+- **[电子科技大学成都学院参军入伍保留学籍申请书](https://docs.qq.com/aio/DVWZ4WUN0c3FzaUtt?u=3ca4f3eff1c14da7b5a72d7985bb28c7&no_promotion=1&p=PLB0wwuHZFVKBMNT0ppn4p)**

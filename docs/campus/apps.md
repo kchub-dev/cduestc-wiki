@@ -4,10 +4,10 @@ author: [Dnyo666]
 study:
   dingtalk:
     name: 钉钉
-    icon: https://tvax2.sinaimg.cn/large/008IDFKely1hznj19cih7j30m80m80w6.jpg
+    icon: https://th.bing.com/th/id/ODLS.8d3a039e-4d19-46fd-8a77-282d04e98582?w=32&h=32&qlt=90&pcl=fffffa&o=6&pid=1.2
     link: https://www.dingtalk.com/download#/
     desc:
-      - 班群、通知、文件
+      - 班群、通知、文件、工作
       - 钉工牌、育才工程
   chaoxing:
     name: 学习通
@@ -21,11 +21,11 @@ study:
     icon: http://p17.qhimg.com/t0155917bbe9d6eabc9.png
     link: https://www.icourse163.org/
     desc:
-      - 自学必备
+      - 自学必备，同时心理课可能会用到
       - 定期摄入知识
   yiban:
     name: 易班
-    icon: https://tvax2.sinaimg.cn/large/008IDFKely1hzn9bmf8y6j30e80e8gmd.jpg
+    icon: https://img.pcsoft.com.cn/azsoft/202312/140009-65700de9eae4f.jpg
     link: https://www.yiban.cn/mobile/index.html
     desc: 在线科成考试
   daxuesoutijiang:
@@ -37,7 +37,7 @@ study:
       - 查习题册答案
   keep:
     name: KEEP
-    icon: https://tvax1.sinaimg.cn/large/008IDFKely1hzn9hk211cj30cl0cl3yx.jpg
+    icon: https://static1.keepcdn.com/misc/2015/08/20/12/53d254c061800000.png
     link: https://www.gotokeep.com/
     desc: 校园跑
 
@@ -55,7 +55,7 @@ org:
       - 党员必备
   tencentmeeting:
     name: 腾讯会议
-    icon: https://tvax4.sinaimg.cn/large/008IDFKely1hznjd4fchhj3074074glh.jpg
+    icon: https://th.bing.com/th/id/ODLS.d5f0ed0d-1be8-4f28-bcee-92b9b1b06727?w=32&h=32&qlt=90&pcl=fffffa&o=6&pid=1.2
     link: https://meeting.tencent.com/download/
     desc:
       - 部门线上会议
@@ -68,14 +68,14 @@ life:
     desc: 查快递、取快递
   huiyou:
     name: 汇优
-    icon: https://tvax3.sinaimg.cn/large/008IDFKely1hzn9l3kotqj3074074wec.jpg
+    icon: https://img.downkuai.com/logo/20221011/5fc42e23929133fe3ea800a6f6837536.png
     link:
     desc:
       - 什邡校区 寝室热水
       - 仅支持支付宝充值
   pgsh:
     name: 胖乖生活
-    icon: https://tvax1.sinaimg.cn/large/008IDFKely1hzn9nj7dc7j305c05cjr7.jpg
+    icon: https://pp.myapp.com/ma_icon/0/icon_53962564_1749801897/256
     link: 
     desc:
       - 公共洗衣机
@@ -86,7 +86,7 @@ weixin:
     name: 科成云生活
     icon: https://tvax2.sinaimg.cn/large/008IDFKely1hznkki4lfqj30hs0hs0to.jpg
     desc:
-      - 校内外卖、桶装水、超市
+      - 生活必备服务号，校内外卖、桶装水、超市
 ---
 
 <script setup>

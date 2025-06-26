@@ -28,7 +28,7 @@ features:
   - title: 住宿生活
     icon: 🏠
     details: 宿舍信息、环境配置、缴费
-    link: /campus/accommodation
+    link: /life/accommodation
   - title: 入学事项
     icon: 📝
     details: 报到流程、缴费、入学须知、防骗指南

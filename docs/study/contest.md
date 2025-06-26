@@ -1,3 +1,7 @@
+---
+author: [muzimu217]
+---
+
 # 竞赛与证书
 
 > [!CAUTION]

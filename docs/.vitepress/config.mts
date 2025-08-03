@@ -103,6 +103,7 @@ function sidebar(): DefaultTheme.Sidebar {
                 link: '/study/',
                 collapsed: true,
                 items: [
+                    { text: '校历/作息时间表', link: '/study/schedule' },
                     {
                         text: '课内学业',
                         items: [
@@ -115,10 +116,11 @@ function sidebar(): DefaultTheme.Sidebar {
                             { text: '专升本', link: '/study/upgrade' },
                         ],
                     },
-                    { text: '实验室/兴趣小组', link: '/study/labs' },
+                    { text: '实验室/兴趣小组/工作室', link: '/study/labs' },
                     { text: '特色班', link: '/study/featured' },
-                    { text: '竞赛与证书', link: '/study/contest' },
+                    { text: '竞赛、证书与奖项', link: '/study/contest' },
                     { text: '第二身份', link: '/study/second' },
+                    
                 ],
             },
             {

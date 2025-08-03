@@ -2,10 +2,11 @@
 author: [muzimu217]
 ---
 
-# 竞赛与证书
+# 竞赛、证书与奖项
 
-> [!CAUTION]
-> 此处仅仅为个人建议，可供参考，如有补充，欢迎投稿
+::: danger **重要提示**
+此处仅仅为个人建议，可供参考，如有补充，欢迎投稿
+:::
 
 ## 竞赛
 
@@ -15,9 +16,9 @@ author: [muzimu217]
 
 - 全国大学生数学建模竞赛
 
-- 等等，更多请看[**竞赛文档：《电子科技大学成都学院学生竞赛项目分类目录》**](https://docs.qq.com/aio/DVWZ4WUN0c3FzaUtt?u=3ca4f3eff1c14da7b5a72d7985bb28c7&no_promotion=1&p=PLB0wwuHZFVKBMNT0ppn4p)
+- 等等，更多请看——[**竞赛文档：《电子科技大学成都学院学生竞赛项目分类目录》**](https://docs.qq.com/aio/DVWZ4WUN0c3FzaUtt?u=3ca4f3eff1c14da7b5a72d7985bb28c7&no_promotion=1&p=PLB0wwuHZFVKBMNT0ppn4p)
 
-  我们学院将竞赛分为四类，不同等级所可以获得的学分和其奖学金不一样，详情请见[**竞赛文档：《电子科技大学成都学院学生竞赛积分标准》**](https://docs.qq.com/aio/DVWZ4WUN0c3FzaUtt?u=3ca4f3eff1c14da7b5a72d7985bb28c7&no_promotion=1&p=PLB0wwuHZFVKBMNT0ppn4p)
+  我们学院将竞赛分为四类，不同等级所可以获得的学分和其奖学金不一样，详情请见——[**竞赛文档：《电子科技大学成都学院学生竞赛积分标准》**](https://docs.qq.com/aio/DVWZ4WUN0c3FzaUtt?u=3ca4f3eff1c14da7b5a72d7985bb28c7&no_promotion=1&p=PLB0wwuHZFVKBMNT0ppn4p)
 
 
 ## 证书
@@ -41,3 +42,13 @@ author: [muzimu217]
 ### 软考
 
 考的是职业技能认证，在有些公司是加分项，尤其是国企。
+
+## 奖项设置
+
+| 国家奖项                     | 校内奖项               |
+|-----------------------------|------------------------|
+| 国家奖学金                   | 学业奖学金             |
+| 国家励志奖学金               | 单项奖学金             |
+| 国家助学金                   | 学校杰出学生奖学金     |
+| 国家助学贷款                 | 校长奖学金             |
+| 服兵役高等学校学生国家教育资助 | 毕业生奖学金           |

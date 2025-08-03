@@ -6,7 +6,7 @@ author: [muzimu217]
 
 学生除了日常学习之外，需参与校级学生组织（包括助理）、院级学生组织（包括班委及助理）、社团以及各大协会的工作，并对其进行**两重身份**认证成功后，**方可激活**百叶积分并进行正常加分。总之第二身份是从24级入学新生开始必须有的，是开启百叶积分的重要前提。
 
-- **[关于2024级学生校园第二身份认证以及组织列表](https://docs.qq.com/aio/DVWZ4WUN0c3FzaUtt?u=3ca4f3eff1c14da7b5a72d7985bb28c7&no_promotion=1&p=PLB0wwuHZFVKBMNT0ppn4p)**
+- **[关于2024级学生校园第二身份认证](https://docs.qq.com/aio/DVWZ4WUN0c3FzaUtt?u=3ca4f3eff1c14da7b5a72d7985bb28c7&no_promotion=1&p=PLB0wwuHZFVKBMNT0ppn4p)**
 - **[电子科技大学成都学院“第二身份”官方组织名单](https://docs.qq.com/aio/DVWZ4WUN0c3FzaUtt?u=3ca4f3eff1c14da7b5a72d7985bb28c7&no_promotion=1&p=PLB0wwuHZFVKBMNT0ppn4p)**(实时更新)
 
 ## 提醒

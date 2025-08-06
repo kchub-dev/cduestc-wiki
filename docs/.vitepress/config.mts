@@ -103,18 +103,24 @@ function sidebar(): DefaultTheme.Sidebar {
                 link: '/study/',
                 collapsed: true,
                 items: [
+                    { text: '校历/作息时间表', link: '/study/schedule' },
                     {
                         text: '课内学业',
                         items: [
-                            { text: '课程安排', link: '/study/curriculum' },
-                            { text: '学业成绩', link: '/study/grades' },
-                            { text: '学分绩点/综测评优', link: '/study/gpa' },
+                            { text: '课程安排与培养计划', link: '/study/lessonplan' },
+                            { text: '关于分数', link: '/study/score' },
+                            { text: '证明打印', link: '/study/proof' },
+                            { text: '考试安排', link: '/study/exam' },
                             { text: '学号/学籍', link: '/study/status' },
+                            { text: '转专业', link: '/study/change' },
+                            { text: '专升本', link: '/study/upgrade' },
                         ],
                     },
-                    { text: '实验室/兴趣小组', link: '/study/labs' },
-                    { text: '竞赛与证书', link: '/study/contest' },
-                    { text: '社团与爱好(未写)', link: '/study/clubs' },
+                    { text: '实验室/兴趣小组/工作室', link: '/study/labs' },
+                    { text: '特色班', link: '/study/featured' },
+                    { text: '竞赛、证书与奖项', link: '/study/contest' },
+                    { text: '第二身份', link: '/study/second' },
+                    
                 ],
             },
             {

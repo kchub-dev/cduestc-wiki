@@ -1,3 +1,7 @@
+---
+author: [muzimu217]
+---
+
 # 校园墙、社区论坛、二手交易
 
 :::warning 风险提醒
@@ -8,26 +12,12 @@
 
 数据统计于2024年10月。
 
-| 头像样式 | 账号名       | 微信号                                                | 更新频率          | 备注               |
+| 头像样式 | 账号名       | 微信/QQ号                                                | 更新频率          | 备注               |
 | -------- | ------------ | ----------------------------------------------------- | ----------------- | ------------------ |
-| 大拇指   | 赞噢校园集市 | 网站：https://c.zanao.com/p/home?cid=xiyou            | ~10条/天          |
-| 懒羊羊   | 西小邮懒羊羊 | <Tip copy>XiAnYouDianQiang</Tip>                      | ~20条/天          |
-| 雷锋帽   | 西小邮       | <Tip copy>Axiyou999</Tip>                             | ~20条/天          |
-| 海贼王   | A小邮万能墙  | <Tip copy>xiyouwannengqiang</Tip>                     | ~10条/天          |
-| 史迪奇   | 科成朋友圈   | <Tip copy>xaydpyq01</Tip> / <Tip copy>xaydpyq02</Tip> | ~10条/天          | 狐友小程序转发     |
-| 黄皮柚   | 科成通       | <Tip copy>xiyoutong1</Tip>                            | ~8条/天           |
-| 浅蓝猫   | 科成表白墙   | <Tip copy>XUPT_BBQ</Tip>                              | ~3条/天           |
-| 绿细胞   | 小欧菌       | <Tip copy>xiyouxiaoo</Tip>                            | ~8条/天           |
-| 粉底白字 | 科成表白墙   | <Tip copy>xyxzs369</Tip>                              | ~8条/天           |
-| 小丸子   | 邮电表白墙   | <Tip copy>d616268</Tip> / <Tip copy>yd45601</Tip>     | ~5条/天           |
-| 懒羊羊   | 邮小电       | <Tip copy>Koi_YouDianQwQ</Tip>                        | ~2条/天           |
-| 蓝学塘   | 糖糖在科成   | <Tip copy>Xayd_tangtang</Tip>                         | ~20条/月          |
-| 校徽     | 邮电校园通   | <Tip copy>XUPT_XYT</Tip>                              | ~2条/月           |
-| 校徽变体 | 仙邮菌       | <Tip copy>sy223344550</Tip>                           | 2024年8月后未更新 |
-| 黄底白字 | 科成帮助站   | <Tip copy>XYBZZ001</Tip>                              | ~20条/天          | 我被拉黑了，看不了 |
-| 帕恰狗   | 万能表白墙   | <Tip copy>Lovemyself12-5</Tip>                        | 2024年7月后未更新 | 由恋爱盲盒运营     |
-| 熊猫人   | 科成万能墙   | <Tip copy>helpyou04</Tip>                             | ~3条/天           | 由恋爱盲盒运营     |
+| 雪山教学楼 | 电子科技大学成都学院校园 | <Tip copy>BaiyeRoad001</Tip>               | ~20条/天          | 学校最大的交流频道 |
+| 爱心小人 | 百叶科成     | <Tip copy>Q1208682132</Tip>                           | ~20条/天          | 学校最大的表白墙 |
+
 
 ## 兴趣群
 
-[【腾讯文档】科成各兴趣群信息](https://docs.qq.com/sheet/DSkFiRmpzcVJHSklM?tab=ov58e9)
+[【腾讯文档】科成各兴趣群信息](https://docs.qq.com/sheet/DVXdmZHhLamVQVmdq?tab=BB08J2)

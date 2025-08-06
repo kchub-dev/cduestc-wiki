@@ -50,6 +50,12 @@ weixin:
     desc:
       - 后勤服务有问题，就找它（俗称维修与宿管群）
       - 后勤管理
+  byjsd:
+    name: 百叶计时代
+    icon: https://tvax2.sinaimg.cn/large/008IDFKely1hznkki4lfqj30hs0hs0to.jpg
+    desc:
+      - 计算机学院的官方微信公众号，计算机学院的同学最好加一下
+      - 通知信息
 ---
 
 <script setup>
@@ -57,5 +63,7 @@ import AppList from "/.vitepress/components/AppList.vue";
 </script>
 
 # 微信公众号
+
+## 官方公众号
 
 <AppList :data="$frontmatter.weixin" />

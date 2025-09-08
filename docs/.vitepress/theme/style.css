@@ -16,7 +16,7 @@
 }
 @font-face {
     font-family: 'MapleMono-2';
-    src: url('/MapleMono-NF-CN-Light.ttf') format('truetype');
+    src: url('https://oss.cduestc.fun/MapleMono-NF-CN-Light.ttf') format('truetype');
     font-weight: normal;
     font-style: normal;
     font-display: swap;
@@ -40,6 +40,35 @@
     --vp-c-brand-2: #ffaa66;
 
     /* --vp-c-brand-soft: #ff853355; */
+}
+
+/* 修复深色模式字体颜色问题 */
+.dark {
+    color-scheme: dark;
+}
+
+.dark * {
+    color: inherit;
+}
+
+.dark .vp-doc {
+    color: var(--vp-c-text-1);
+}
+
+.dark .vp-doc h1,
+.dark .vp-doc h2,
+.dark .vp-doc h3,
+.dark .vp-doc h4,
+.dark .vp-doc h5,
+.dark .vp-doc h6 {
+    color: var(--vp-c-text-1);
+}
+
+.dark .vp-doc p,
+.dark .vp-doc li,
+.dark .vp-doc td,
+.dark .vp-doc th {
+    color: var(--vp-c-text-2);
 }
 
 .vp-doc {
@@ -75,7 +104,7 @@
     width: 1.5em;
     height: 1.5em;
     margin-right: 0.4em;
-    background: url("/3logo.svg") no-repeat;
+    background: url("/logo.svg") no-repeat;
     background-size: contain;
     vertical-align: middle;
 }

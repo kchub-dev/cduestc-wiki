@@ -1,5 +1,6 @@
 import type { DefaultTheme } from 'vitepress'
 import { defineConfig } from 'vitepress'
+import { pagefindPlugin } from 'vitepress-plugin-pagefind'
 
 // https://vitepress.dev/zh/reference/site-config
 export default defineConfig({
@@ -39,19 +40,39 @@ export default defineConfig({
 
         footer: {
             message: '由数字校园办公室提供信息支持，科成星球开发组负责',
-            copyright: `© ${new Date().getFullYear()} <a href="https://github.com/kchub-dev">科成星球项目组</a>`,
+            copyright: `© ${new Date().getFullYear()} <a href="https://github.com/kchub-dev">科成星球项目组</a> | <a href="https://beian.miit.gov.cn/" target="_blank">蜀ICP备2025122461号-1</a>`,
         },
     },
 
     head: [
         ['link', { rel: 'icon', href: '/logo.svg' }],
         ['link', { rel: 'stylesheet', href: 'https://lib.baomitu.com/font-awesome/6.5.1/css/all.min.css', media: 'none', onload: 'media="all"' }],
+        // 51LA统计代码
+        ['script', { charset: 'UTF-8', id: 'LA_COLLECT', src: '//sdk.51.la/js-sdk-pro.min.js' }],
+        ['script', {}, 'LA.init({id:"Kw98PvFvmUElbcK3",ck:"Kw98PvFvmUElbcK3",autoTrack:true})'],
     ],
     markdown: {
         math: true,
     },
 
-    vite: { server: { allowedHosts: true } },
+    vite: {
+        server: { allowedHosts: true },
+        plugins: [
+            pagefindPlugin({
+                locales: {
+                    root: {
+                        btnPlaceholder: '搜索',
+                        placeholder: '搜索文档…',
+                        emptyText: '没有匹配结果',
+                        heading: '共 {{searchResult}} 条结果',
+                        showDate: true,
+                    },
+                },
+                // 可选：过滤掉不想索引的路由
+                // filter: (item) => !item.route.includes('changelog'),
+            }),
+        ],
+    },
 })
 
 function nav(): DefaultTheme.NavItem[] {
@@ -92,7 +113,7 @@ function sidebar(): DefaultTheme.Sidebar {
                     { text: '学院情况', link: '/campus/academy' },
                     { text: '专业列表', link: '/campus/major' },
                     { text: '入学准备与办理', link: '/campus/entrance' },
-                    { text: '职能部门', link: '/campus/connect'},
+                    { text: '职能部门', link: '/campus/connect' },
                     { text: '防骗', link: '/campus/anti-fraud' },
                     { text: '手机必备APP', link: '/campus/apps' },
                     { text: '公众号', link: '/campus/weixin' },
@@ -120,7 +141,6 @@ function sidebar(): DefaultTheme.Sidebar {
                     { text: '特色班', link: '/study/featured' },
                     { text: '竞赛、证书与奖项', link: '/study/contest' },
                     { text: '第二身份', link: '/study/second' },
-                    
                 ],
             },
             {

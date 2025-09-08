@@ -76,10 +76,17 @@ life:
   pgsh:
     name: 胖乖生活
     icon: https://pp.myapp.com/ma_icon/0/icon_53962564_1749801897/256
-    link: 
+    link:
     desc:
       - 公共洗衣机
       - 垃圾软件，一堆广告
+  doubao:
+    name: 豆包
+    icon: https://i0.wp.com/wx4.sinaimg.cn/large/006LFp2ily1i569fnh6bzj30d60d6tau.jpg
+    link: https://doubao.com
+    desc:
+      - 日常生活
+      - 学习解答
 
 weixin:
   kecheng:

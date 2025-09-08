@@ -23,6 +23,31 @@ import 'tippy.js/dist/svg-arrow.css'
 import './theme-enhanced.css'
 import './style.css'
 
+/**
+ * 统一给文档正文容器添加 data-pagefind-body
+ * - Pagefind 检测到站内存在 data-pagefind-body 时，只会索引带该属性的区域
+ * - 为避免遗漏页面，这里在每次路由切换后确保正文容器都有该属性
+ */
+function markDocBody() {
+    if (typeof document === 'undefined') return
+    // VitePress 1.x 默认类名 .VPDoc（有时主题会变体，做多兜底一些选择器）
+    const candidates = [
+        'main .VPDoc',
+        'main .vp-doc',
+        'main .VPContent .content',
+        'article.VPDoc'
+    ]
+    for (const sel of candidates) {
+        const el = document.querySelector<HTMLElement>(sel)
+        if (el) {
+            if (!el.hasAttribute('data-pagefind-body')) {
+                el.setAttribute('data-pagefind-body', '')
+            }
+            break
+        }
+    }
+}
+
 export default {
     extends: DefaultTheme,
     Layout: () => {
@@ -31,10 +56,11 @@ export default {
             'doc-before': () => h(Header),
             'doc-after': () => h(Footer),
             'doc-footer-before': () => h(Author),
-            'not-found': () => h(NotFound),
+            'not-found': () => h(NotFound)
         })
     },
-    enhanceApp({ app }) {
+    enhanceApp({ app, router }) {
+        // 全局组件
         app.component('Disclaimer', Disclaimer)
         app.component('Dropdown', Dropdown)
         app.component('Icon', Icon)
@@ -45,15 +71,30 @@ export default {
         app.component('AMapView', AMapView)
         app.component('AppList', AppList)
 
+        // 状态管理 & 提示
         const pinia = createPinia()
-
         app.use(pinia)
         app.use(VueTippy, {
             component: 'Tooltip',
             directive: 'tip',
             defaultProps: {
-                arrow: roundArrow,
-            },
+                arrow: roundArrow
+            }
         })
-    },
+
+        // 仅在浏览器侧打标，避免 SSR 报错
+        if (typeof window !== 'undefined') {
+            // 初次加载
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', markDocBody, { once: true })
+            } else {
+                markDocBody()
+            }
+            // 路由切换后再次打标（VitePress 提供的钩子）
+            router?.onAfterRouteChanged?.(() => {
+                // 等待下一帧，确保 DOM 已更新
+                requestAnimationFrame(markDocBody)
+            })
+        }
+    }
 } satisfies Theme

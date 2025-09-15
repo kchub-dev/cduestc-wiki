@@ -1,11 +1,18 @@
 <script setup lang="ts">
 import type { Lab } from '../../utils/lab'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { getAvatar } from '../../utils/lab'
 import Link from '../Link.vue'
 
 const props = defineProps<Lab>()
 const avatar = computed(() => getAvatar(props))
+
+// note展开状态
+const isNoteExpanded = ref(false)
+
+const toggleNoteExpanded = () => {
+    isNoteExpanded.value = !isNoteExpanded.value
+}
 </script>
 
 <template>
@@ -46,8 +53,12 @@ const avatar = computed(() => getAvatar(props))
             <div class="info">
                 <Link v-if="belong" icon="ri:building-line" :text="belong" />
                 <Link v-if="addr" icon="ri:map-pin-2-line" :text="addr" />
+                <Link v-if="join" icon="ri:calendar-line" :text="`招新时间: ${join}`" />
                 <Link v-if="qq" icon="ri:qq-fill" copy :text="qq" />
-                <!-- <Link v-if="note" icon="ri:message-2-line" :text="note" /> -->
+                <div v-if="note" class="note-item" @click="toggleNoteExpanded">
+                    <Icon icon="ri:message-2-line" />
+                    <span class="note-content" :class="{ expanded: isNoteExpanded }">{{ note }}</span>
+                </div>
             </div>
         </div>
     </div>
@@ -150,5 +161,59 @@ const avatar = computed(() => getAvatar(props))
     opacity: 0.7;
     width: 90%;
     font-size: 0.9em;
+}
+
+.note-item {
+    display: inline-flex;
+    gap: 0.2em;
+    line-height: 1.4;
+    align-items: flex-start;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.note-item:hover {
+    opacity: 1;
+}
+
+.note-item .iconify {
+    height: 1.2em;
+    margin-top: 0.1em;
+    flex-shrink: 0;
+}
+
+.note-content {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    word-wrap: break-word;
+    word-break: break-word;
+    line-height: 1.4;
+    transition: all 0.3s ease;
+}
+
+.note-content.expanded {
+    display: block;
+    -webkit-line-clamp: unset;
+    line-clamp: unset;
+    overflow: visible;
+}
+
+/* 桌面端悬停效果 */
+@media (hover: hover) {
+    .note-item:hover .note-content {
+        display: block;
+        -webkit-line-clamp: unset;
+        line-clamp: unset;
+        overflow: visible;
+        background: var(--vp-c-bg-soft);
+        padding: 0.2rem 0.4rem;
+        border-radius: 4px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        position: relative;
+        z-index: 10;
+    }
 }
 </style>

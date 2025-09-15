@@ -1,5 +1,6 @@
 ---
 layout: home
+outline: false
 # sidebar: false
 ---
 
@@ -7,7 +8,6 @@ layout: home
 import CoderGuild from "/.vitepress/components/unique/CoderGuild.vue";
 import LabList from "/.vitepress/components/unique/LabList.vue";
 </script>
-
 
 <CoderGuild />
 

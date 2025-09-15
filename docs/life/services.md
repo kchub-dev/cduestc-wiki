@@ -100,7 +100,7 @@ author: [Dnyo666]
 
 科成星球生活服务可通过以下方式访问：
 
-1. **科成星球主网站**：访问 [cduestc.fun](https://cduestc.fun) 或 [kecheng.wiki](https://kecheng.wiki)
+1. **科成星球主网站**：访问 [cduestc.fun](https://cduestc.fun)
 2. **科成小助手**：移动端便捷查询工具
 3. **专题小程序**：针对特定服务的独立小程序
 

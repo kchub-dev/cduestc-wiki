@@ -2,7 +2,7 @@
 
 ## 校内友链
 
-- [KC导航](https://nav.cduestc.fun) (电子科技大学成都学院网址导航服务)
+- [科成导航](https://nav.cduestc.fun) (电子科技大学成都学院网址导航服务)
 - [科成MC](https://craft.cduestc.fun/) (电子科技大学成都学院 MC 交流群体)
 
 ## 其他 Wiki

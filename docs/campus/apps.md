@@ -41,7 +41,6 @@ study:
     link: https://www.gotokeep.com/
     desc: 校园跑
 
-
 org:
   zhiyuanhui:
     name: 志愿汇
@@ -69,14 +68,14 @@ life:
   huiyou:
     name: 汇优
     icon: https://img.downkuai.com/logo/20221011/5fc42e23929133fe3ea800a6f6837536.png
-    link:
+    link: https://oss.cduestc.fun/huiyou-5.3.4.apk
     desc:
       - 什邡校区 寝室热水
       - 仅支持支付宝充值
   pgsh:
     name: 胖乖生活
     icon: https://pp.myapp.com/ma_icon/0/icon_53962564_1749801897/256
-    link:
+    link: http://mobile.d.appchina.com/McDonald/e/7486078/0/0/0/1757925065585/package_173.1757925065585
     desc:
       - 公共洗衣机
       - 垃圾软件，一堆广告

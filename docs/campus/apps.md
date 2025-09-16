@@ -45,6 +45,7 @@ org:
   zhiyuanhui:
     name: 志愿汇
     icon: http://p19.qhimg.com/t01ee80da7f31430c22.png
+    link: http://mobile.d.appchina.com/McDonald/e/7490457/0/0/0/1757990969877/package_574.1757990969877
     desc: 部分组织团体用来记录志愿时长
   xuexi:
     name: 学习强国
@@ -64,6 +65,7 @@ life:
   cainiao:
     name: 菜鸟
     icon: http://p16.qhimg.com/dr/_72_/t01950c338d20f6ccaa.png
+    link: http://mobile.d.appchina.com/McDonald/e/7478497/0/0/0/1757923238308/package_445.1757923238308
     desc: 查快递、取快递
   huiyou:
     name: 汇优

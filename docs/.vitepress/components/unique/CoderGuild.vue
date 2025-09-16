@@ -1,18 +1,65 @@
 <script setup lang="ts">
+import { ref, onMounted, onUnmounted } from 'vue'
 import Dropdown from '../Dropdown.vue'
+
+const isMobile = ref(false)
+const qrUrl = 'https://pd.qq.com/g/cduestc2025'
+
+// 检测是否为移动设备
+const checkMobile = () => {
+    if (typeof window !== 'undefined') {
+        isMobile.value = window.innerWidth <= 768
+    }
+}
+
+// 移动端点击处理
+const handleMobileClick = () => {
+    if (isMobile.value) {
+        window.open(qrUrl, '_blank')
+    }
+}
+
+// 窗口大小变化处理
+const handleResize = () => {
+    checkMobile()
+}
+
+onMounted(() => {
+    checkMobile()
+    if (typeof window !== 'undefined') {
+        window.addEventListener('resize', handleResize)
+    }
+})
+
+onUnmounted(() => {
+    if (typeof window !== 'undefined') {
+        window.removeEventListener('resize', handleResize)
+    }
+})
 </script>
 
 <template>
-    <Dropdown class="card vp-doc">
+    <!-- 移动端：直接点击跳转 -->
+    <div v-if="isMobile" class="card vp-doc mobile-card" @click="handleMobileClick">
         <img src="https://pd.qq.com/favicon.ico" alt="" class="coder-gulid-icon">
-        “西邮码农”频道
+        "科成星球"频道
         <div class="desc">
-            实验室纳新、技术交流、就业资讯
+            实验室纳新、技术交流、兴趣社群交流、学习沟通
         </div>
-        <Icon icon="ri:arrow-right-s-line" class="arrow" />
+        <Icon icon="ri:external-link-line" class="arrow" />
+    </div>
+
+    <!-- 桌面端：显示下拉二维码 -->
+    <Dropdown v-else class="card vp-doc">
+        <img src="https://pd.qq.com/favicon.ico" alt="" class="coder-gulid-icon">
+        "科成星球"频道
+        <div class="desc">
+            实验室纳新、技术交流、兴趣社群交流、学习沟通
+        </div>
+        <Icon icon="ri:arrow-down-s-line" class="arrow" />
 
         <template #content>
-            <QRCode src="https://pd.qq.com/g/pd65611488" />
+            <QRCode :src="qrUrl" />
             <div class="desc code-desc">
                 QQ 扫码加入
             </div>
@@ -57,6 +104,28 @@ import Dropdown from '../Dropdown.vue'
 .arrow {
     position: absolute;
     right: 0.2em;
+}
+
+.mobile-card {
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.mobile-card:hover {
+    background: var(--vp-c-bg-soft);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.mobile-card:active {
+    transform: translateY(0);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+.mobile-hint {
+    font-size: 0.8em;
+    color: var(--vp-c-brand-1);
+    font-weight: 500;
 }
 </style>
 

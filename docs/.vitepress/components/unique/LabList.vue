@@ -205,7 +205,10 @@ onUnmounted(() => {
     <slot />
 
     <div class="center-line vp-doc">
-        科成星球收集整理，如有错误请联系我们更新
+        <a href="https://qm.qq.com/q/woNVaUfvuU" target="_blank" class="submit-link">
+            科成星球-开发组 收集整理，点击提交或修改群组信息
+            <Icon icon="ri:external-link-line" class="external-icon" />
+        </a>
     </div>
 
     <!-- 实验室分类 -->
@@ -508,5 +511,41 @@ onUnmounted(() => {
     .floating-button {
         display: none;
     }
+}
+
+/* 提交链接样式 */
+.submit-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--vp-c-text-2);
+    text-decoration: none;
+    transition: all 0.2s ease;
+    padding: 0.4rem 0.8rem;
+    border-radius: 8px;
+    font-size: 0.9rem;
+}
+
+.submit-link:hover {
+    color: var(--vp-c-brand-1);
+    background: var(--vp-c-bg-soft);
+    text-decoration: none;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.submit-link:active {
+    transform: translateY(0);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+.external-icon {
+    font-size: 0.9em;
+    opacity: 0.7;
+    transition: opacity 0.2s ease;
+}
+
+.submit-link:hover .external-icon {
+    opacity: 1;
 }
 </style>

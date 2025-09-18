@@ -6,7 +6,7 @@
         v-show="!isOpen" 
         class="chat-float-button" 
         @click="toggleChat"
-        v-tooltip="'科成AI助手'"
+        v-tip="'科成AI助手'"
       >
         <Icon icon="ri:robot-2-line" class="chat-icon" />
         <div v-if="hasUnread" class="unread-dot"></div>
@@ -26,10 +26,10 @@
             </div>
           </div>
           <div class="header-actions">
-            <button @click="clearHistory" class="action-btn" v-tooltip="'清空对话'">
+            <button @click="clearHistory" class="action-btn" v-tip="'清空对话'">
               <Icon icon="ri:delete-bin-line" />
             </button>
-            <button @click="toggleChat" class="action-btn" v-tooltip="'关闭对话'">
+            <button @click="toggleChat" class="action-btn" v-tip="'关闭对话'">
               <Icon icon="ri:close-line" />
             </button>
           </div>

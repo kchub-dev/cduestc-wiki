@@ -7,10 +7,6 @@ author: [Dnyo666]
 快递、外卖情况请参阅[快递和外卖](/life/delivery)一节。
 :::
 
-## 2026级新生报到时间安排
-
-![2026级新生报到时间安排](/dormitory/freshman-schedule-2026.png)
-
 ## 宿舍
 
 1. 供电时间：23:30熄灯断电。

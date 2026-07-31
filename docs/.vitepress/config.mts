@@ -139,7 +139,7 @@ function sidebar(): DefaultTheme.Sidebar {
                     },
                     { text: '实验室/兴趣小组/工作室', link: '/study/labs' },
                     { text: '特色班', link: '/study/featured' },
-                    { text: '学院之网', link: '/study/network' },
+                    { text: '学院知网', link: '/study/network' },
                     { text: '竞赛、证书与奖项', link: '/study/contest' },
                     { text: '第二身份', link: '/study/second' },
                 ],

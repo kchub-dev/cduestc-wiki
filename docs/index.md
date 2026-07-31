@@ -15,7 +15,7 @@ hero:
       link: /overview
     - text: 科成导航
       theme: alt
-      link: https://nav.cduestc.fun/
+      link: https://nav.kcos.club/
     - text: 项目介绍
       theme: alt
       link: /project

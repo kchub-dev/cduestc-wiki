@@ -81,7 +81,7 @@ function nav(): DefaultTheme.NavItem[] {
         { text: '校园', link: '/campus/', activeMatch: '^/campus/' },
         { text: '学习', link: '/study/', activeMatch: '^/study/' },
         { text: '生活', link: '/life/', activeMatch: '^/life/' },
-        { text: '科成导航', link: 'https://nav.cduestc.fun' },
+        { text: '科成导航', link: 'https://nav.kcos.club' },
         {
             text: '关于',
             items: [

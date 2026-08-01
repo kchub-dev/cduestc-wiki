@@ -216,7 +216,18 @@ interface KnowledgeResult {
 
 const searchKnowledge = (query: string): KnowledgeResult => {
   if (!knowledgeBase.value.length) return { content: '', links: [] }
-  const keywords = query.replace(/[？，。！、]/g, ' ').split(/\s+/).filter(k => k.length > 1)
+  // 提取关键词：中文按2-4字切分，英文按空格切分
+  const cleanQuery = query.replace(/[？，。！、\s\.\?\!]/g, '')
+  const keywords: string[] = []
+  // 中文关键词：2-4字的子串
+  for (let len = 4; len >= 2; len--) {
+    for (let i = 0; i <= cleanQuery.length - len; i++) {
+      const sub = cleanQuery.substring(i, i + len)
+      if (/[一-龥]/.test(sub)) keywords.push(sub)
+    }
+  }
+  // 英文关键词
+  query.split(/\s+/).filter(k => k.length > 1 && /[\da-z]/i.test(k)).forEach(k => keywords.push(k.toLowerCase()))
   if (!keywords.length) return { content: '', links: [] }
 
   const scored = knowledgeBase.value.map(item => {

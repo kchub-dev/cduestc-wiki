@@ -326,12 +326,12 @@ const sendMessage = async () => {
   scrollToBottom()
   isLoading.value = true
 
-  try {
-    // 检索知识库
-    const knowledge = searchKnowledge(message)
-    const context = knowledge.content
-    const relatedLinks = knowledge.links
+  // 先检索知识库，获取相关链接（即使API失败也能展示）
+  const knowledge = searchKnowledge(message)
+  const context = knowledge.content
+  const relatedLinks = knowledge.links
 
+  try {
     // 构建系统提示词
     const systemPrompt = `你是"星辰AI助手"，电子科技大学成都学院（科成）的校园问答助手。请基于提供的参考资料回答用户问题。如果参考资料中没有相关内容，请如实说明并给出通用建议。回答要简洁、友好、实用。`
 
@@ -406,11 +406,17 @@ const sendMessage = async () => {
 
   } catch (error) {
     console.error('AI对话错误:', error)
+    // 如果有相关链接，给出更友好的提示
+    const baseMessage = error instanceof Error ? error.message : '抱歉，服务暂时不可用，请稍后再试。'
+    const content = relatedLinks.length > 0
+      ? `${baseMessage}\n\n以下页面可能有您需要的信息：`
+      : baseMessage
     const errorMessage = {
       id: `error_${Date.now()}`,
-      content: error instanceof Error ? error.message : '抱歉，服务暂时不可用，请稍后再试。',
+      content,
       isUser: false,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      links: relatedLinks.length > 0 ? relatedLinks : undefined
     }
     messages.value.push(errorMessage)
   } finally {

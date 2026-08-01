@@ -22,7 +22,7 @@
             <Icon icon="ri:robot-2-fill" class="header-icon" />
             <div>
               <div class="header-title">星辰-AI助手</div>
-              <div class="header-subtitle">为您解答校园生活问题</div>
+              <div class="header-subtitle">基于校园知识库的AI助手</div>
             </div>
           </div>
           <div class="header-actions">
@@ -159,17 +159,55 @@ const messages = ref<Array<{
   timestamp: number
 }>>([])
 const suggestedQuestions = ref<string[]>([])
-const lastMessageId = ref<string>('')
 
 // DOM引用
 const messagesContainer = ref<HTMLElement>()
 const textareaRef = ref<HTMLTextAreaElement>()
 
-// Dify配置 - 写死的配置
-const DIFY_CONFIG = {
-  apiKey: 'app-q4R3gQRoWLnkMveJMIvC62y9', // 直接写您的API Key
-  baseUrl: 'https://chat.lzgzxs.xyz/v1', // 使用HTTPS
-  user: 'cduestc-wiki-user' // 固定用户标识
+// API配置 - OpenAI兼容接口
+const API_CONFIG = {
+  baseUrl: 'https://hub.linux.do/v1',
+  apiKey: 'ah-6299cbb81666be776eadb25506b0d7896f3ce2b1d358b9d4d044d844b982e99a',
+  model: 'step-3.5-flash'
+}
+
+// 知识库
+const knowledgeBase = ref<Array<{ title: string; content: string }>>([])
+
+// 加载知识库
+const loadKnowledge = async () => {
+  try {
+    const res = await fetch('/knowledge.json')
+    if (res.ok) {
+      knowledgeBase.value = await res.json()
+      console.log(`知识库加载完成: ${knowledgeBase.value.length} 条`)
+    }
+  } catch (e) {
+    console.warn('知识库加载失败:', e)
+  }
+}
+
+// 关键词匹配检索知识库
+const searchKnowledge = (query: string): string => {
+  if (!knowledgeBase.value.length) return ''
+  const keywords = query.replace(/[？，。！、]/g, ' ').split(/\s+/).filter(k => k.length > 1)
+  if (!keywords.length) return ''
+
+  const scored = knowledgeBase.value.map(item => {
+    let score = 0
+    const lowerContent = item.content.toLowerCase()
+    const lowerTitle = item.title.toLowerCase()
+    keywords.forEach(kw => {
+      const lower = kw.toLowerCase()
+      if (lowerContent.includes(lower)) score += 1
+      if (lowerTitle.includes(lower)) score += 2
+    })
+    return { ...item, score }
+  }).filter(item => item.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+
+  return scored.map(item => `【${item.title}】${item.content}`).join('\n\n')
 }
 
 // 快速问题
@@ -201,8 +239,6 @@ const toggleChat = async () => {
 const clearHistory = () => {
   messages.value = []
   suggestedQuestions.value = []
-  // 清空会话ID，开始新对话
-  sessionStorage.removeItem('dify_conversation_id')
 }
 
 // 发送快速问题
@@ -244,136 +280,90 @@ const sendMessage = async () => {
     timestamp: Date.now()
   }
   messages.value.push(userMessage)
-  
-  // 清空输入和建议问题
+
+  // 清空输入
   currentInput.value = ''
-  suggestedQuestions.value = []
   adjustTextareaHeight()
-  
-  // 滚动到底部
   scrollToBottom()
-  
-  // 开始加载
   isLoading.value = true
-  
+
   try {
-    // 构建请求体，按照Dify官方文档规范
+    // 检索知识库
+    const context = searchKnowledge(message)
+
+    // 构建系统提示词
+    const systemPrompt = `你是"星辰AI助手"，电子科技大学成都学院（科成）的校园问答助手。请基于提供的参考资料回答用户问题。如果参考资料中没有相关内容，请如实说明并给出通用建议。回答要简洁、友好、实用。`
+
+    const userPrompt = context
+      ? `参考资料：\n${context}\n\n用户问题：${message}`
+      : message
+
+    // 构建 OpenAI 格式请求体
     const requestBody = {
-      inputs: {},
-      query: message,
-      response_mode: 'blocking', // 使用blocking模式，streaming需要额外处理SSE
-      user: DIFY_CONFIG.user,
-      auto_generate_name: true
+      model: API_CONFIG.model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        ...messages.value.slice(-6).filter(m => !m.isUser || true).map(m => ({
+          role: m.isUser ? 'user' as const : 'assistant' as const,
+          content: m.content
+        })),
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: 0.7,
+      max_tokens: 1024
     }
-    
-    // 只有存在会话ID时才添加，避免传undefined
-    const conversationId = getConversationId()
-    if (conversationId) {
-      requestBody.conversation_id = conversationId
-    }
-    
-    console.log('发送聊天请求:', requestBody)
-    
-    // 调用Dify API
-    const response = await fetch(`${DIFY_CONFIG.baseUrl}/chat-messages`, {
+
+    console.log('发送请求:', requestBody)
+
+    const response = await fetch(`${API_CONFIG.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${DIFY_CONFIG.apiKey}`,
+        'Authorization': `Bearer ${API_CONFIG.apiKey}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(requestBody)
     })
 
     if (!response.ok) {
-      // 获取详细错误信息
       let errorMessage = '抱歉，服务暂时不可用'
-      
       try {
         const errorData = await response.json()
-        console.error('Dify API错误响应:', errorData)
-        
-        // 解析具体的错误类型
-        if (errorData.code === 'invalid_param' && errorData.message) {
-          const message = errorData.message
-          
-          // 检查是否是配额限制错误
-          if (message.includes('exceeded your current quota') || message.includes('RESOURCE_EXHAUSTED')) {
-            errorMessage = '🚫 AI服务配额已用完，请明天再试或联系管理员升级配额'
-          } else if (message.includes('rate limit') || response.status === 429) {
-            errorMessage = '⏳ 请求过于频繁，请稍后再试'
-          } else if (message.includes('API request failed')) {
-            errorMessage = '🔧 AI服务暂时不可用，请稍后重试'
-          } else {
-            errorMessage = `❌ 请求错误: ${errorData.message.substring(0, 100)}...`
-          }
-        } else {
-          errorMessage = errorData.message || errorMessage
-        }
+        console.error('API错误响应:', errorData)
+        errorMessage = errorData.error?.message || errorMessage
       } catch (e) {
         const errorText = await response.text()
         console.error(`API错误 ${response.status}:`, errorText)
-        
-        // 根据HTTP状态码提供友好的错误信息
         switch (response.status) {
-          case 400:
-            errorMessage = '❌ 请求参数错误，请稍后重试'
-            break
-          case 401:
-            errorMessage = '🔑 API密钥无效，请联系管理员'
-            break
-          case 404:
-            errorMessage = '🔍 服务不存在，请检查配置'
-            break
-          case 429:
-            errorMessage = '⏳ 请求过于频繁，请稍后重试'
-            break
-          case 500:
-            errorMessage = '🛠️ 服务器内部错误，请稍后重试'
-            break
+          case 401: errorMessage = '🔑 API密钥无效'; break
+          case 429: errorMessage = '⏳ 请求过于频繁，请稍后再试'; break
+          case 500: errorMessage = '🛠️ 服务器内部错误'; break
         }
       }
-      
       throw new Error(errorMessage)
     }
 
     const data = await response.json()
-    console.log('Dify API响应:', data)
-    
-    // 按照官方文档验证响应格式
-    if (data.event !== 'message') {
-      console.error('意外的响应格式:', data)
-      throw new Error('服务响应格式异常')
-    }
-    
-    // 添加AI回复
+    console.log('API响应:', data)
+
+    const answer = data.choices?.[0]?.message?.content || '抱歉，我现在无法回答这个问题。'
+
     const aiMessage = {
-      id: data.message_id || `ai_${Date.now()}`,
-      content: data.answer || '抱歉，我现在无法回答这个问题。',
+      id: `ai_${Date.now()}`,
+      content: answer,
       isUser: false,
-      timestamp: data.created_at ? data.created_at * 1000 : Date.now() // Dify返回Unix时间戳(秒)
+      timestamp: Date.now()
     }
     messages.value.push(aiMessage)
-    
-    // 保存会话ID
-    if (data.conversation_id) {
-      sessionStorage.setItem('dify_conversation_id', data.conversation_id)
-    }
-    
-    // 保存最后一个消息ID并获取建议问题
-    if (data.message_id) {
-      lastMessageId.value = data.message_id
-      await fetchSuggestedQuestions(data.message_id)
-    }
-    
-    // 如果窗口关闭，显示未读提示
+
+    // 生成建议问题
+    generateSuggestedQuestions(message, answer)
+
     if (!isOpen.value) {
       hasUnread.value = true
     }
-    
+
   } catch (error) {
     console.error('AI对话错误:', error)
-    
-    // 添加错误消息
     const errorMessage = {
       id: `error_${Date.now()}`,
       content: error instanceof Error ? error.message : '抱歉，服务暂时不可用，请稍后再试。',
@@ -387,54 +377,29 @@ const sendMessage = async () => {
   }
 }
 
-// 获取会话ID
-const getConversationId = () => {
-  return sessionStorage.getItem('dify_conversation_id') || undefined
-}
-
-// 获取建议问题 - 按照Dify官方API规范
-const fetchSuggestedQuestions = async (messageId: string) => {
-  try {
-    // 构建查询参数 - 必须包含user参数
-    const params = new URLSearchParams({
-      user: DIFY_CONFIG.user
-    })
-    
-    const url = `${DIFY_CONFIG.baseUrl}/messages/${messageId}/suggested?${params}`
-    console.log('获取建议问题URL:', url)
-    
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${DIFY_CONFIG.apiKey}`,
-        'Content-Type': 'application/json'
-      }
-    })
-
-    if (response.ok) {
-      const result = await response.json()
-      console.log('建议问题响应:', result)
-      
-      // 按照官方API规范检查响应格式
-      if (result.result === 'success' && result.data && Array.isArray(result.data) && result.data.length > 0) {
-        // data是字符串数组，直接使用
-        suggestedQuestions.value = result.data
-      } else {
-        // 如果没有建议问题或返回错误，清空数组
-        suggestedQuestions.value = []
-      }
-    } else {
-      // API调用失败，打印详细错误信息
-      const errorText = await response.text()
-      console.error(`获取建议问题失败: HTTP ${response.status}`)
-      console.error('错误响应:', errorText)
-      suggestedQuestions.value = []
-    }
-  } catch (error) {
-    console.error('获取建议问题失败:', error)
-    // 如果API失败，不显示建议问题
-    suggestedQuestions.value = []
+// 根据上下文生成建议问题
+const generateSuggestedQuestions = (question: string, answer: string) => {
+  const topicKeywords: Record<string, string[]> = {
+    '宿舍': ['宿舍怎么换？', '宿舍有空调吗？', '宿舍几点熄灯？'],
+    '食堂': ['哪个食堂好吃？', '食堂营业时间？', '食堂价格怎么样？'],
+    '选课': ['选课什么时候开始？', '怎么选体育课？', '选课系统打不开怎么办？'],
+    '社团': ['有哪些社团？', '怎么加入社团？', '社团活动多吗？'],
+    '实验室': ['怎么加入实验室？', '有哪些实验室？', '实验室招新条件？'],
+    '军训': ['军训多长时间？', '军训要准备什么？', '军训可以请假吗？'],
+    '校园网': ['校园网怎么连？', '校园卡怎么办？', '宽带怎么装？'],
+    '快递': ['快递站在哪？', '快递怎么取？', '可以寄快递吗？'],
+    '防骗': ['新生防骗指南', '怎么识别诈骗？', '校园贷是什么？'],
+    '图书馆': ['图书馆开放时间？', '怎么借书？', '图书馆有WiFi吗？'],
   }
+
+  const combined = question + answer
+  for (const [keyword, questions] of Object.entries(topicKeywords)) {
+    if (combined.includes(keyword)) {
+      suggestedQuestions.value = questions
+      return
+    }
+  }
+  suggestedQuestions.value = []
 }
 
 // 滚动到底部
@@ -596,6 +561,7 @@ const handleClickOutside = (event: Event) => {
 
 onMounted(() => {
   document.addEventListener('click', handleClickOutside)
+  loadKnowledge()
 })
 
 onUnmounted(() => {

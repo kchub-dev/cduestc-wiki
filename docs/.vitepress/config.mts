@@ -81,7 +81,7 @@ function nav(): DefaultTheme.NavItem[] {
         { text: '校园', link: '/campus/', activeMatch: '^/campus/' },
         { text: '学习', link: '/study/', activeMatch: '^/study/' },
         { text: '生活', link: '/life/', activeMatch: '^/life/' },
-        { text: '科成导航', link: 'https://nav.cduestc.fun' },
+        { text: '科成导航', link: 'https://nav.kcos.club' },
         {
             text: '关于',
             items: [
@@ -139,6 +139,7 @@ function sidebar(): DefaultTheme.Sidebar {
                     },
                     { text: '实验室/兴趣小组/工作室', link: '/study/labs' },
                     { text: '特色班', link: '/study/featured' },
+                    { text: '学院知网', link: '/study/network' },
                     { text: '竞赛、证书与奖项', link: '/study/contest' },
                     { text: '第二身份', link: '/study/second' },
                 ],

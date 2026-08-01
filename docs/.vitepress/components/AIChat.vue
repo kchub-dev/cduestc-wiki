@@ -70,12 +70,32 @@
               />
             </div>
             <div class="message-content">
-              <div 
-                class="message-text" 
+              <div
+                class="message-text"
                 :class="{ 'vp-doc': !message.isUser }"
-                v-html="formatMessage(message.content)" 
+                v-html="formatMessage(message.content)"
                 @click="handleMessageClick"
               ></div>
+              <!-- 相关页面链接 -->
+              <div v-if="!message.isUser && message.links && message.links.length > 0" class="message-links">
+                <div class="links-title">
+                  <Icon icon="ri:link" />
+                  相关页面
+                </div>
+                <div class="links-list">
+                  <a
+                    v-for="link in message.links"
+                    :key="link.url"
+                    :href="link.url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="link-item"
+                  >
+                    <Icon icon="ri:file-text-line" />
+                    {{ link.title }}
+                  </a>
+                </div>
+              </div>
               <div class="message-time">{{ formatTime(message.timestamp) }}</div>
             </div>
           </div>
@@ -157,6 +177,7 @@ const messages = ref<Array<{
   content: string
   isUser: boolean
   timestamp: number
+  links?: Array<{ title: string; url: string }>
 }>>([])
 const suggestedQuestions = ref<string[]>([])
 
@@ -172,7 +193,7 @@ const API_CONFIG = {
 }
 
 // 知识库
-const knowledgeBase = ref<Array<{ title: string; content: string }>>([])
+const knowledgeBase = ref<Array<{ title: string; content: string; url: string }>>([])
 
 // 加载知识库
 const loadKnowledge = async () => {
@@ -187,11 +208,16 @@ const loadKnowledge = async () => {
   }
 }
 
-// 关键词匹配检索知识库
-const searchKnowledge = (query: string): string => {
-  if (!knowledgeBase.value.length) return ''
+// 关键词匹配检索知识库，返回匹配结果（含链接）
+interface KnowledgeResult {
+  content: string
+  links: Array<{ title: string; url: string }>
+}
+
+const searchKnowledge = (query: string): KnowledgeResult => {
+  if (!knowledgeBase.value.length) return { content: '', links: [] }
   const keywords = query.replace(/[？，。！、]/g, ' ').split(/\s+/).filter(k => k.length > 1)
-  if (!keywords.length) return ''
+  if (!keywords.length) return { content: '', links: [] }
 
   const scored = knowledgeBase.value.map(item => {
     let score = 0
@@ -207,7 +233,20 @@ const searchKnowledge = (query: string): string => {
     .sort((a, b) => b.score - a.score)
     .slice(0, 3)
 
-  return scored.map(item => `【${item.title}】${item.content}`).join('\n\n')
+  // 去重链接
+  const seen = new Set<string>()
+  const links = scored
+    .filter(item => {
+      if (seen.has(item.url)) return false
+      seen.add(item.url)
+      return true
+    })
+    .map(item => ({ title: item.title, url: item.url }))
+
+  return {
+    content: scored.map(item => `【${item.title}】${item.content}`).join('\n\n'),
+    links
+  }
 }
 
 // 快速问题
@@ -289,7 +328,9 @@ const sendMessage = async () => {
 
   try {
     // 检索知识库
-    const context = searchKnowledge(message)
+    const knowledge = searchKnowledge(message)
+    const context = knowledge.content
+    const relatedLinks = knowledge.links
 
     // 构建系统提示词
     const systemPrompt = `你是"星辰AI助手"，电子科技大学成都学院（科成）的校园问答助手。请基于提供的参考资料回答用户问题。如果参考资料中没有相关内容，请如实说明并给出通用建议。回答要简洁、友好、实用。`
@@ -351,7 +392,8 @@ const sendMessage = async () => {
       id: `ai_${Date.now()}`,
       content: answer,
       isUser: false,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      links: relatedLinks.length > 0 ? relatedLinks : undefined
     }
     messages.value.push(aiMessage)
 
@@ -889,6 +931,51 @@ onUnmounted(() => {
   color: var(--vp-c-text-3);
   margin-top: 4px;
   padding: 0 14px;
+}
+
+/* 相关页面链接 */
+.message-links {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: var(--vp-c-bg-mute);
+  border-radius: 8px;
+  border: 1px solid var(--vp-c-divider);
+}
+
+.links-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--vp-c-text-2);
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+
+.links-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.link-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--vp-c-brand-1);
+  text-decoration: none;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  background: var(--vp-c-bg);
+  border: 1px solid transparent;
+}
+
+.link-item:hover {
+  background: var(--vp-c-brand-soft);
+  border-color: var(--vp-c-brand-1);
+  color: var(--vp-c-brand-2);
 }
 
 /* 加载动画 */

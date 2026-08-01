@@ -19,6 +19,15 @@ def clean_md(text):
     text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
 
+def get_url(filepath):
+    # docs/campus/entrance.md -> /campus/entrance
+    rel = os.path.relpath(filepath, docs_dir)
+    url = '/' + rel.replace('.md', '').replace('\\', '/')
+    # index -> /campus/ instead of /campus/index
+    if url.endswith('/index'):
+        url = url[:-5]
+    return url
+
 for root, dirs, files in os.walk(docs_dir):
     for f in sorted(files):
         if not f.endswith('.md') or f in skip_files:
@@ -29,6 +38,7 @@ for root, dirs, files in os.walk(docs_dir):
 
         title_match = re.search(r'^#\s+(.+)', content, re.MULTILINE)
         title = title_match.group(1).strip() if title_match else f.replace('.md', '')
+        url = get_url(path)
 
         cleaned = clean_md(content)
         if len(cleaned) > 50:
@@ -36,12 +46,12 @@ for root, dirs, files in os.walk(docs_dir):
             current_chunk = ''
             for p in paragraphs:
                 if len(current_chunk) + len(p) > 800 and current_chunk:
-                    knowledge.append({'title': title, 'content': current_chunk.strip()})
+                    knowledge.append({'title': title, 'content': current_chunk.strip(), 'url': url})
                     current_chunk = p
                 else:
                     current_chunk += '\n\n' + p if current_chunk else p
             if current_chunk.strip():
-                knowledge.append({'title': title, 'content': current_chunk.strip()})
+                knowledge.append({'title': title, 'content': current_chunk.strip(), 'url': url})
 
 output_path = 'docs/public/knowledge.json'
 with open(output_path, 'w', encoding='utf-8') as f:

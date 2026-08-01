@@ -22,7 +22,7 @@
             <Icon icon="ri:robot-2-fill" class="header-icon" />
             <div>
               <div class="header-title">星辰-AI助手</div>
-              <div class="header-subtitle">{{ isApiAvailable() ? '基于校园知识库的AI助手' : '基于校园知识库的页面推荐' }}</div>
+              <div class="header-subtitle">基于校园知识库的AI助手</div>
             </div>
           </div>
           <div class="header-actions">
@@ -42,7 +42,7 @@
             <Icon icon="ri:robot-2-line" class="welcome-icon" />
             <div class="welcome-text">
               <h3>👋 欢迎使用科成AI助手！</h3>
-              <p>{{ isApiAvailable() ? '我可以帮您解答关于校园生活、实验室、社团等各种问题。' : '当前为页面推荐模式，我会为您查找相关页面。' }}</p>
+              <p>我可以帮您解答关于校园生活、实验室、社团等各种问题。</p>
               <div class="quick-questions">
                 <button 
                   v-for="question in quickQuestions" 
@@ -146,17 +146,16 @@
               rows="1"
               :disabled="isLoading"
             ></textarea>
-            <button
-              @click="sendMessage"
-              :disabled="!currentInput.trim() || isLoading || cooldownLeft > 0"
+            <button 
+              @click="sendMessage" 
+              :disabled="!currentInput.trim() || isLoading"
               class="send-btn"
             >
               <Icon icon="ri:send-plane-2-fill" />
             </button>
           </div>
           <div class="input-tips">
-            <span v-if="cooldownLeft > 0" class="cooldown-tip">⏳ {{ cooldownLeft }}秒后可再次提问</span>
-            <span v-else>按 Enter 发送，Shift + Enter 换行</span>
+            按 Enter 发送，Shift + Enter 换行
           </div>
         </div>
       </div>
@@ -189,47 +188,20 @@ const textareaRef = ref<HTMLTextAreaElement>()
 // API配置 - OpenAI兼容接口
 const API_CONFIG = {
   baseUrl: 'https://hub.linux.do/v1',
-  apiKey: 'YOUR_API_KEY_HERE',
+  apiKey: 'ah-6299cbb81666be776eadb25506b0d7896f3ce2b1d358b9d4d044d844b982e99a',
   model: 'step-3.5-flash'
 }
 
-// 检查 API 是否可用
-const isApiAvailable = () => {
-  return API_CONFIG.apiKey && API_CONFIG.apiKey !== 'YOUR_API_KEY_HERE'
-}
-
 // 知识库
-interface KnowledgeItem {
-  title: string
-  section: string
-  content: string
-  url: string
-}
-const knowledgeBase = ref<KnowledgeItem[]>([])
+const knowledgeBase = ref<Array<{ title: string; content: string; url: string }>>([])
 
-// 知识库缓存
-const KNOWLEDGE_CACHE_KEY = 'ai_knowledge_cache'
-const KNOWLEDGE_VERSION_KEY = 'ai_knowledge_version'
-const CURRENT_VERSION = '2'
-
+// 加载知识库
 const loadKnowledge = async () => {
   try {
-    // 优先读缓存
-    const cached = localStorage.getItem(KNOWLEDGE_CACHE_KEY)
-    const version = localStorage.getItem(KNOWLEDGE_VERSION_KEY)
-    if (cached && version === CURRENT_VERSION) {
-      knowledgeBase.value = JSON.parse(cached)
-      console.log(`知识库从缓存加载: ${knowledgeBase.value.length} 条`)
-      return
-    }
-    // 缓存未命中，拉取远程
     const res = await fetch('/knowledge.json')
     if (res.ok) {
-      const data = await res.json()
-      knowledgeBase.value = data
-      localStorage.setItem(KNOWLEDGE_CACHE_KEY, JSON.stringify(data))
-      localStorage.setItem(KNOWLEDGE_VERSION_KEY, CURRENT_VERSION)
-      console.log(`知识库远程加载: ${data.length} 条`)
+      knowledgeBase.value = await res.json()
+      console.log(`知识库加载完成: ${knowledgeBase.value.length} 条`)
     }
   } catch (e) {
     console.warn('知识库加载失败:', e)
@@ -244,53 +216,35 @@ interface KnowledgeResult {
 
 const searchKnowledge = (query: string): KnowledgeResult => {
   if (!knowledgeBase.value.length) return { content: '', links: [] }
-  // 提取关键词：中文按2-4字切分，英文按空格切分
-  const cleanQuery = query.replace(/[？，。！、\s\.\?\!]/g, '')
-  const keywords: string[] = []
-  for (let len = 4; len >= 2; len--) {
-    for (let i = 0; i <= cleanQuery.length - len; i++) {
-      const sub = cleanQuery.substring(i, i + len)
-      if (/[一-龥]/.test(sub)) keywords.push(sub)
-    }
-  }
-  query.split(/\s+/).filter(k => k.length > 1 && /[\da-z]/i.test(k)).forEach(k => keywords.push(k.toLowerCase()))
+  const keywords = query.replace(/[？，。！、]/g, ' ').split(/\s+/).filter(k => k.length > 1)
   if (!keywords.length) return { content: '', links: [] }
 
   const scored = knowledgeBase.value.map(item => {
     let score = 0
     const lowerContent = item.content.toLowerCase()
     const lowerTitle = item.title.toLowerCase()
-    const lowerSection = (item.section || '').toLowerCase()
     keywords.forEach(kw => {
       const lower = kw.toLowerCase()
-      if (lowerSection.includes(lower)) score += 3  // 章节匹配权重最高
-      if (lowerTitle.includes(lower)) score += 2
       if (lowerContent.includes(lower)) score += 1
+      if (lowerTitle.includes(lower)) score += 2
     })
     return { ...item, score }
   }).filter(item => item.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, 3)
 
-  // 去重链接，保留最佳匹配
+  // 去重链接
   const seen = new Set<string>()
   const links = scored
     .filter(item => {
-      const key = item.url.split('#')[0] // 同页面去重
-      if (seen.has(key)) return false
-      seen.add(key)
+      if (seen.has(item.url)) return false
+      seen.add(item.url)
       return true
     })
-    .map(item => ({
-      title: item.section ? `${item.title} > ${item.section}` : item.title,
-      url: item.url
-    }))
+    .map(item => ({ title: item.title, url: item.url }))
 
   return {
-    content: scored.map(item => {
-      const label = item.section ? `【${item.title} > ${item.section}】` : `【${item.title}】`
-      return `${label}${item.content}`
-    }).join('\n\n'),
+    content: scored.map(item => `【${item.title}】${item.content}`).join('\n\n'),
     links
   }
 }
@@ -318,39 +272,6 @@ const toggleChat = async () => {
     // 关闭：直接关闭
     isOpen.value = false
   }
-}
-
-// 频率限制：每分钟最多1次
-const RATE_LIMIT_KEY = 'ai_chat_last_request'
-const RATE_LIMIT_SECONDS = 60
-const cooldownLeft = ref(0)
-let cooldownTimer: ReturnType<typeof setInterval> | null = null
-
-const checkRateLimit = (): boolean => {
-  const last = localStorage.getItem(RATE_LIMIT_KEY)
-  if (!last) return true
-  const elapsed = (Date.now() - parseInt(last)) / 1000
-  if (elapsed >= RATE_LIMIT_SECONDS) return true
-  cooldownLeft.value = Math.ceil(RATE_LIMIT_SECONDS - elapsed)
-  startCooldownTimer()
-  return false
-}
-
-const recordRequest = () => {
-  localStorage.setItem(RATE_LIMIT_KEY, Date.now().toString())
-  cooldownLeft.value = RATE_LIMIT_SECONDS
-  startCooldownTimer()
-}
-
-const startCooldownTimer = () => {
-  if (cooldownTimer) clearInterval(cooldownTimer)
-  cooldownTimer = setInterval(() => {
-    cooldownLeft.value--
-    if (cooldownLeft.value <= 0) {
-      clearInterval(cooldownTimer!)
-      cooldownTimer = null
-    }
-  }, 1000)
 }
 
 // 清空对话历史
@@ -390,18 +311,6 @@ const sendMessage = async () => {
   const message = currentInput.value.trim()
   if (!message || isLoading.value) return
 
-  // 频率限制检查（仅在有API时限制）
-  if (isApiAvailable() && !checkRateLimit()) {
-    messages.value.push({
-      id: `rate_${Date.now()}`,
-      content: `⏳ 操作过于频繁，请等待 ${cooldownLeft.value} 秒后再试。`,
-      isUser: false,
-      timestamp: Date.now()
-    })
-    scrollToBottom()
-    return
-  }
-
   // 添加用户消息
   const userMessage = {
     id: `user_${Date.now()}`,
@@ -417,39 +326,20 @@ const sendMessage = async () => {
   scrollToBottom()
   isLoading.value = true
 
-  // 先检索知识库，获取相关链接
+  // 先检索知识库，获取相关链接（即使API失败也能展示）
   const knowledge = searchKnowledge(message)
   const context = knowledge.content
   const relatedLinks = knowledge.links
 
-  // 如果 API 不可用，直接降级为纯推荐模式
-  if (!isApiAvailable()) {
-    const hasLinks = relatedLinks.length > 0
-    const content = hasLinks
-      ? '🔍 当前没有AI模型介入，以下是根据您的问题为您找到的相关页面：'
-      : '🔍 当前没有AI模型介入，知识库中暂未找到相关页面。\n\n您可以尝试换个关键词，或直接浏览左侧菜单查找信息。'
-
-    const aiMessage = {
-      id: `ai_${Date.now()}`,
-      content,
-      isUser: false,
-      timestamp: Date.now(),
-      links: hasLinks ? relatedLinks : undefined
-    }
-    messages.value.push(aiMessage)
-    isLoading.value = false
-    scrollToBottom()
-    return
-  }
-
-  // API 可用，正常调用
   try {
+    // 构建系统提示词
     const systemPrompt = `你是"星辰AI助手"，电子科技大学成都学院（科成）的校园问答助手。请基于提供的参考资料回答用户问题。如果参考资料中没有相关内容，请如实说明并给出通用建议。回答要简洁、友好、实用。`
 
     const userPrompt = context
       ? `参考资料：\n${context}\n\n用户问题：${message}`
       : message
 
+    // 构建 OpenAI 格式请求体
     const requestBody = {
       model: API_CONFIG.model,
       messages: [
@@ -464,6 +354,8 @@ const sendMessage = async () => {
       max_tokens: 1024
     }
 
+    console.log('发送请求:', requestBody)
+
     const response = await fetch(`${API_CONFIG.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -474,26 +366,25 @@ const sendMessage = async () => {
     })
 
     if (!response.ok) {
-      // API 调用失败，降级为推荐模式
-      console.warn('API调用失败，降级为推荐模式')
-      const hasLinks = relatedLinks.length > 0
-      const content = hasLinks
-        ? '⚠️ AI服务暂时不可用，以下是根据您的问题为您找到的相关页面：'
-        : '⚠️ AI服务暂时不可用，知识库中暂未找到相关页面。\n\n您可以尝试换个关键词，或直接浏览左侧菜单查找信息。'
-
-      const aiMessage = {
-        id: `ai_${Date.now()}`,
-        content,
-        isUser: false,
-        timestamp: Date.now(),
-        links: hasLinks ? relatedLinks : undefined
+      let errorMessage = '抱歉，服务暂时不可用'
+      try {
+        const errorData = await response.json()
+        console.error('API错误响应:', errorData)
+        errorMessage = errorData.error?.message || errorMessage
+      } catch (e) {
+        const errorText = await response.text()
+        console.error(`API错误 ${response.status}:`, errorText)
+        switch (response.status) {
+          case 401: errorMessage = '🔑 API密钥无效'; break
+          case 429: errorMessage = '⏳ 请求过于频繁，请稍后再试'; break
+          case 500: errorMessage = '🛠️ 服务器内部错误'; break
+        }
       }
-      messages.value.push(aiMessage)
-      return
+      throw new Error(errorMessage)
     }
 
     const data = await response.json()
-    recordRequest()
+    console.log('API响应:', data)
 
     const answer = data.choices?.[0]?.message?.content || '抱歉，我现在无法回答这个问题。'
 
@@ -506,6 +397,7 @@ const sendMessage = async () => {
     }
     messages.value.push(aiMessage)
 
+    // 生成建议问题
     generateSuggestedQuestions(message, answer)
 
     if (!isOpen.value) {
@@ -513,20 +405,20 @@ const sendMessage = async () => {
     }
 
   } catch (error) {
-    console.error('AI对话错误，降级为推荐模式:', error)
-    const hasLinks = relatedLinks.length > 0
-    const content = hasLinks
-      ? '⚠️ AI服务暂时不可用，以下是根据您的问题为您找到的相关页面：'
-      : '⚠️ AI服务暂时不可用，知识库中暂未找到相关页面。\n\n您可以尝试换个关键词，或直接浏览左侧菜单查找信息。'
-
-    const aiMessage = {
+    console.error('AI对话错误:', error)
+    // 如果有相关链接，给出更友好的提示
+    const baseMessage = error instanceof Error ? error.message : '抱歉，服务暂时不可用，请稍后再试。'
+    const content = relatedLinks.length > 0
+      ? `${baseMessage}\n\n以下页面可能有您需要的信息：`
+      : baseMessage
+    const errorMessage = {
       id: `error_${Date.now()}`,
       content,
       isUser: false,
       timestamp: Date.now(),
-      links: hasLinks ? relatedLinks : undefined
+      links: relatedLinks.length > 0 ? relatedLinks : undefined
     }
-    messages.value.push(aiMessage)
+    messages.value.push(errorMessage)
   } finally {
     isLoading.value = false
     scrollToBottom()
@@ -1260,11 +1152,6 @@ onUnmounted(() => {
   color: var(--vp-c-text-3);
   margin-top: 8px;
   text-align: center;
-}
-
-.cooldown-tip {
-  color: var(--vp-c-warning-1, #f59e0b);
-  font-weight: 500;
 }
 
 /* 动画效果 */

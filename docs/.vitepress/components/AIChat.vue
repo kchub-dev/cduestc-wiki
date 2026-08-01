@@ -146,16 +146,17 @@
               rows="1"
               :disabled="isLoading"
             ></textarea>
-            <button 
-              @click="sendMessage" 
-              :disabled="!currentInput.trim() || isLoading"
+            <button
+              @click="sendMessage"
+              :disabled="!currentInput.trim() || isLoading || cooldownLeft > 0"
               class="send-btn"
             >
               <Icon icon="ri:send-plane-2-fill" />
             </button>
           </div>
           <div class="input-tips">
-            按 Enter 发送，Shift + Enter 换行
+            <span v-if="cooldownLeft > 0" class="cooldown-tip">⏳ {{ cooldownLeft }}秒后可再次提问</span>
+            <span v-else>按 Enter 发送，Shift + Enter 换行</span>
           </div>
         </div>
       </div>
@@ -285,6 +286,39 @@ const toggleChat = async () => {
   }
 }
 
+// 频率限制：每分钟最多1次
+const RATE_LIMIT_KEY = 'ai_chat_last_request'
+const RATE_LIMIT_SECONDS = 60
+const cooldownLeft = ref(0)
+let cooldownTimer: ReturnType<typeof setInterval> | null = null
+
+const checkRateLimit = (): boolean => {
+  const last = localStorage.getItem(RATE_LIMIT_KEY)
+  if (!last) return true
+  const elapsed = (Date.now() - parseInt(last)) / 1000
+  if (elapsed >= RATE_LIMIT_SECONDS) return true
+  cooldownLeft.value = Math.ceil(RATE_LIMIT_SECONDS - elapsed)
+  startCooldownTimer()
+  return false
+}
+
+const recordRequest = () => {
+  localStorage.setItem(RATE_LIMIT_KEY, Date.now().toString())
+  cooldownLeft.value = RATE_LIMIT_SECONDS
+  startCooldownTimer()
+}
+
+const startCooldownTimer = () => {
+  if (cooldownTimer) clearInterval(cooldownTimer)
+  cooldownTimer = setInterval(() => {
+    cooldownLeft.value--
+    if (cooldownLeft.value <= 0) {
+      clearInterval(cooldownTimer!)
+      cooldownTimer = null
+    }
+  }, 1000)
+}
+
 // 清空对话历史
 const clearHistory = () => {
   messages.value = []
@@ -321,6 +355,18 @@ const adjustTextareaHeight = () => {
 const sendMessage = async () => {
   const message = currentInput.value.trim()
   if (!message || isLoading.value) return
+
+  // 频率限制检查
+  if (!checkRateLimit()) {
+    messages.value.push({
+      id: `rate_${Date.now()}`,
+      content: `⏳ 操作过于频繁，请等待 ${cooldownLeft.value} 秒后再试。`,
+      isUser: false,
+      timestamp: Date.now()
+    })
+    scrollToBottom()
+    return
+  }
 
   // 添加用户消息
   const userMessage = {
@@ -396,6 +442,9 @@ const sendMessage = async () => {
 
     const data = await response.json()
     console.log('API响应:', data)
+
+    // 记录请求时间（无论成功失败都计时）
+    recordRequest()
 
     const answer = data.choices?.[0]?.message?.content || '抱歉，我现在无法回答这个问题。'
 
@@ -1163,6 +1212,11 @@ onUnmounted(() => {
   color: var(--vp-c-text-3);
   margin-top: 8px;
   text-align: center;
+}
+
+.cooldown-tip {
+  color: var(--vp-c-warning-1, #f59e0b);
+  font-weight: 500;
 }
 
 /* 动画效果 */

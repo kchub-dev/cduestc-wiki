@@ -21,7 +21,7 @@
 
 ## 鸣谢
 
-源仓库：[西柚WIKI](https://wiki.cooo.site/)
+源仓库：[西邮WIKI](https://wiki.cooo.site/)
 
 ## 本地运行/部署
 

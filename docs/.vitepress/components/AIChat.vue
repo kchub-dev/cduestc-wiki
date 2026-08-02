@@ -22,7 +22,7 @@
             <Icon icon="ri:robot-2-fill" class="header-icon" />
             <div>
               <div class="header-title">星辰-AI助手</div>
-              <div class="header-subtitle">基于校园知识库的AI助手</div>
+              <div class="header-subtitle">{{ isApiAvailable() ? '基于校园知识库的AI助手' : '基于校园知识库的页面推荐' }}</div>
             </div>
           </div>
           <div class="header-actions">
@@ -42,7 +42,7 @@
             <Icon icon="ri:robot-2-line" class="welcome-icon" />
             <div class="welcome-text">
               <h3>👋 欢迎使用科成AI助手！</h3>
-              <p>我可以帮您解答关于校园生活、实验室、社团等各种问题。</p>
+              <p>{{ isApiAvailable() ? '我可以帮您解答关于校园生活、实验室、社团等各种问题。' : '当前为页面推荐模式，我会为您查找相关页面。' }}</p>
               <div class="quick-questions">
                 <button 
                   v-for="question in quickQuestions" 
@@ -191,6 +191,11 @@ const API_CONFIG = {
   baseUrl: 'https://hub.linux.do/v1',
   apiKey: 'YOUR_API_KEY_HERE',
   model: 'step-3.5-flash'
+}
+
+// 检查 API 是否可用
+const isApiAvailable = () => {
+  return API_CONFIG.apiKey && API_CONFIG.apiKey !== 'YOUR_API_KEY_HERE'
 }
 
 // 知识库
@@ -356,8 +361,8 @@ const sendMessage = async () => {
   const message = currentInput.value.trim()
   if (!message || isLoading.value) return
 
-  // 频率限制检查
-  if (!checkRateLimit()) {
+  // 频率限制检查（仅在有API时限制）
+  if (isApiAvailable() && !checkRateLimit()) {
     messages.value.push({
       id: `rate_${Date.now()}`,
       content: `⏳ 操作过于频繁，请等待 ${cooldownLeft.value} 秒后再试。`,
@@ -383,20 +388,39 @@ const sendMessage = async () => {
   scrollToBottom()
   isLoading.value = true
 
-  // 先检索知识库，获取相关链接（即使API失败也能展示）
+  // 先检索知识库，获取相关链接
   const knowledge = searchKnowledge(message)
   const context = knowledge.content
   const relatedLinks = knowledge.links
 
+  // 如果 API 不可用，直接降级为纯推荐模式
+  if (!isApiAvailable()) {
+    const hasLinks = relatedLinks.length > 0
+    const content = hasLinks
+      ? '🔍 当前没有AI模型介入，以下是根据您的问题为您找到的相关页面：'
+      : '🔍 当前没有AI模型介入，知识库中暂未找到相关页面。\n\n您可以尝试换个关键词，或直接浏览左侧菜单查找信息。'
+
+    const aiMessage = {
+      id: `ai_${Date.now()}`,
+      content,
+      isUser: false,
+      timestamp: Date.now(),
+      links: hasLinks ? relatedLinks : undefined
+    }
+    messages.value.push(aiMessage)
+    isLoading.value = false
+    scrollToBottom()
+    return
+  }
+
+  // API 可用，正常调用
   try {
-    // 构建系统提示词
     const systemPrompt = `你是"星辰AI助手"，电子科技大学成都学院（科成）的校园问答助手。请基于提供的参考资料回答用户问题。如果参考资料中没有相关内容，请如实说明并给出通用建议。回答要简洁、友好、实用。`
 
     const userPrompt = context
       ? `参考资料：\n${context}\n\n用户问题：${message}`
       : message
 
-    // 构建 OpenAI 格式请求体
     const requestBody = {
       model: API_CONFIG.model,
       messages: [
@@ -411,8 +435,6 @@ const sendMessage = async () => {
       max_tokens: 1024
     }
 
-    console.log('发送请求:', requestBody)
-
     const response = await fetch(`${API_CONFIG.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -423,27 +445,25 @@ const sendMessage = async () => {
     })
 
     if (!response.ok) {
-      let errorMessage = '抱歉，服务暂时不可用'
-      try {
-        const errorData = await response.json()
-        console.error('API错误响应:', errorData)
-        errorMessage = errorData.error?.message || errorMessage
-      } catch (e) {
-        const errorText = await response.text()
-        console.error(`API错误 ${response.status}:`, errorText)
-        switch (response.status) {
-          case 401: errorMessage = '🔑 API密钥无效'; break
-          case 429: errorMessage = '⏳ 请求过于频繁，请稍后再试'; break
-          case 500: errorMessage = '🛠️ 服务器内部错误'; break
-        }
+      // API 调用失败，降级为推荐模式
+      console.warn('API调用失败，降级为推荐模式')
+      const hasLinks = relatedLinks.length > 0
+      const content = hasLinks
+        ? '⚠️ AI服务暂时不可用，以下是根据您的问题为您找到的相关页面：'
+        : '⚠️ AI服务暂时不可用，知识库中暂未找到相关页面。\n\n您可以尝试换个关键词，或直接浏览左侧菜单查找信息。'
+
+      const aiMessage = {
+        id: `ai_${Date.now()}`,
+        content,
+        isUser: false,
+        timestamp: Date.now(),
+        links: hasLinks ? relatedLinks : undefined
       }
-      throw new Error(errorMessage)
+      messages.value.push(aiMessage)
+      return
     }
 
     const data = await response.json()
-    console.log('API响应:', data)
-
-    // 记录请求时间（无论成功失败都计时）
     recordRequest()
 
     const answer = data.choices?.[0]?.message?.content || '抱歉，我现在无法回答这个问题。'
@@ -457,7 +477,6 @@ const sendMessage = async () => {
     }
     messages.value.push(aiMessage)
 
-    // 生成建议问题
     generateSuggestedQuestions(message, answer)
 
     if (!isOpen.value) {
@@ -465,20 +484,20 @@ const sendMessage = async () => {
     }
 
   } catch (error) {
-    console.error('AI对话错误:', error)
-    // 如果有相关链接，给出更友好的提示
-    const baseMessage = error instanceof Error ? error.message : '抱歉，服务暂时不可用，请稍后再试。'
-    const content = relatedLinks.length > 0
-      ? `${baseMessage}\n\n以下页面可能有您需要的信息：`
-      : baseMessage
-    const errorMessage = {
+    console.error('AI对话错误，降级为推荐模式:', error)
+    const hasLinks = relatedLinks.length > 0
+    const content = hasLinks
+      ? '⚠️ AI服务暂时不可用，以下是根据您的问题为您找到的相关页面：'
+      : '⚠️ AI服务暂时不可用，知识库中暂未找到相关页面。\n\n您可以尝试换个关键词，或直接浏览左侧菜单查找信息。'
+
+    const aiMessage = {
       id: `error_${Date.now()}`,
       content,
       isUser: false,
       timestamp: Date.now(),
-      links: relatedLinks.length > 0 ? relatedLinks : undefined
+      links: hasLinks ? relatedLinks : undefined
     }
-    messages.value.push(errorMessage)
+    messages.value.push(aiMessage)
   } finally {
     isLoading.value = false
     scrollToBottom()

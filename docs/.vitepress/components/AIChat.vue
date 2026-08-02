@@ -22,7 +22,7 @@
             <Icon icon="ri:robot-2-fill" class="header-icon" />
             <div>
               <div class="header-title">星辰-AI助手</div>
-              <div class="header-subtitle">为您解答校园生活问题</div>
+              <div class="header-subtitle">基于校园知识库的AI助手</div>
             </div>
           </div>
           <div class="header-actions">
@@ -70,12 +70,32 @@
               />
             </div>
             <div class="message-content">
-              <div 
-                class="message-text" 
+              <div
+                class="message-text"
                 :class="{ 'vp-doc': !message.isUser }"
-                v-html="formatMessage(message.content)" 
+                v-html="formatMessage(message.content)"
                 @click="handleMessageClick"
               ></div>
+              <!-- 相关页面链接 -->
+              <div v-if="!message.isUser && message.links && message.links.length > 0" class="message-links">
+                <div class="links-title">
+                  <Icon icon="ri:link" />
+                  相关页面
+                </div>
+                <div class="links-list">
+                  <a
+                    v-for="link in message.links"
+                    :key="link.url"
+                    :href="link.url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="link-item"
+                  >
+                    <Icon icon="ri:file-text-line" />
+                    {{ link.title }}
+                  </a>
+                </div>
+              </div>
               <div class="message-time">{{ formatTime(message.timestamp) }}</div>
             </div>
           </div>
@@ -126,16 +146,17 @@
               rows="1"
               :disabled="isLoading"
             ></textarea>
-            <button 
-              @click="sendMessage" 
-              :disabled="!currentInput.trim() || isLoading"
+            <button
+              @click="sendMessage"
+              :disabled="!currentInput.trim() || isLoading || cooldownLeft > 0"
               class="send-btn"
             >
               <Icon icon="ri:send-plane-2-fill" />
             </button>
           </div>
           <div class="input-tips">
-            按 Enter 发送，Shift + Enter 换行
+            <span v-if="cooldownLeft > 0" class="cooldown-tip">⏳ {{ cooldownLeft }}秒后可再次提问</span>
+            <span v-else>按 Enter 发送，Shift + Enter 换行</span>
           </div>
         </div>
       </div>
@@ -157,19 +178,87 @@ const messages = ref<Array<{
   content: string
   isUser: boolean
   timestamp: number
+  links?: Array<{ title: string; url: string }>
 }>>([])
 const suggestedQuestions = ref<string[]>([])
-const lastMessageId = ref<string>('')
 
 // DOM引用
 const messagesContainer = ref<HTMLElement>()
 const textareaRef = ref<HTMLTextAreaElement>()
 
-// Dify配置 - 写死的配置
-const DIFY_CONFIG = {
-  apiKey: 'app-q4R3gQRoWLnkMveJMIvC62y9', // 直接写您的API Key
-  baseUrl: 'https://chat.lzgzxs.xyz/v1', // 使用HTTPS
-  user: 'cduestc-wiki-user' // 固定用户标识
+// API配置 - OpenAI兼容接口
+const API_CONFIG = {
+  baseUrl: 'https://hub.linux.do/v1',
+  apiKey: 'ah-6299cbb81666be776eadb25506b0d7896f3ce2b1d358b9d4d044d844b982e99a',
+  model: 'step-3.5-flash'
+}
+
+// 知识库
+const knowledgeBase = ref<Array<{ title: string; content: string; url: string }>>([])
+
+// 加载知识库
+const loadKnowledge = async () => {
+  try {
+    const res = await fetch('/knowledge.json')
+    if (res.ok) {
+      knowledgeBase.value = await res.json()
+      console.log(`知识库加载完成: ${knowledgeBase.value.length} 条`)
+    }
+  } catch (e) {
+    console.warn('知识库加载失败:', e)
+  }
+}
+
+// 关键词匹配检索知识库，返回匹配结果（含链接）
+interface KnowledgeResult {
+  content: string
+  links: Array<{ title: string; url: string }>
+}
+
+const searchKnowledge = (query: string): KnowledgeResult => {
+  if (!knowledgeBase.value.length) return { content: '', links: [] }
+  // 提取关键词：中文按2-4字切分，英文按空格切分
+  const cleanQuery = query.replace(/[？，。！、\s\.\?\!]/g, '')
+  const keywords: string[] = []
+  // 中文关键词：2-4字的子串
+  for (let len = 4; len >= 2; len--) {
+    for (let i = 0; i <= cleanQuery.length - len; i++) {
+      const sub = cleanQuery.substring(i, i + len)
+      if (/[一-龥]/.test(sub)) keywords.push(sub)
+    }
+  }
+  // 英文关键词
+  query.split(/\s+/).filter(k => k.length > 1 && /[\da-z]/i.test(k)).forEach(k => keywords.push(k.toLowerCase()))
+  if (!keywords.length) return { content: '', links: [] }
+
+  const scored = knowledgeBase.value.map(item => {
+    let score = 0
+    const lowerContent = item.content.toLowerCase()
+    const lowerTitle = item.title.toLowerCase()
+    keywords.forEach(kw => {
+      const lower = kw.toLowerCase()
+      if (lowerContent.includes(lower)) score += 1
+      if (lowerTitle.includes(lower)) score += 2
+    })
+    return { ...item, score }
+  }).filter(item => item.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+
+  // 去重链接
+  const seen = new Set<string>()
+  const links = scored
+    .filter(item => {
+      if (seen.has(item.url)) return false
+      seen.add(item.url)
+      return true
+    })
+    .map(item => ({ title: item.title, url: item.url }))
+
+  return {
+    content: scored.map(item => `【${item.title}】${item.content}`).join('\n\n'),
+    links
+  }
 }
 
 // 快速问题
@@ -197,12 +286,43 @@ const toggleChat = async () => {
   }
 }
 
+// 频率限制：每分钟最多1次
+const RATE_LIMIT_KEY = 'ai_chat_last_request'
+const RATE_LIMIT_SECONDS = 60
+const cooldownLeft = ref(0)
+let cooldownTimer: ReturnType<typeof setInterval> | null = null
+
+const checkRateLimit = (): boolean => {
+  const last = localStorage.getItem(RATE_LIMIT_KEY)
+  if (!last) return true
+  const elapsed = (Date.now() - parseInt(last)) / 1000
+  if (elapsed >= RATE_LIMIT_SECONDS) return true
+  cooldownLeft.value = Math.ceil(RATE_LIMIT_SECONDS - elapsed)
+  startCooldownTimer()
+  return false
+}
+
+const recordRequest = () => {
+  localStorage.setItem(RATE_LIMIT_KEY, Date.now().toString())
+  cooldownLeft.value = RATE_LIMIT_SECONDS
+  startCooldownTimer()
+}
+
+const startCooldownTimer = () => {
+  if (cooldownTimer) clearInterval(cooldownTimer)
+  cooldownTimer = setInterval(() => {
+    cooldownLeft.value--
+    if (cooldownLeft.value <= 0) {
+      clearInterval(cooldownTimer!)
+      cooldownTimer = null
+    }
+  }, 1000)
+}
+
 // 清空对话历史
 const clearHistory = () => {
   messages.value = []
   suggestedQuestions.value = []
-  // 清空会话ID，开始新对话
-  sessionStorage.removeItem('dify_conversation_id')
 }
 
 // 发送快速问题
@@ -236,6 +356,18 @@ const sendMessage = async () => {
   const message = currentInput.value.trim()
   if (!message || isLoading.value) return
 
+  // 频率限制检查
+  if (!checkRateLimit()) {
+    messages.value.push({
+      id: `rate_${Date.now()}`,
+      content: `⏳ 操作过于频繁，请等待 ${cooldownLeft.value} 秒后再试。`,
+      isUser: false,
+      timestamp: Date.now()
+    })
+    scrollToBottom()
+    return
+  }
+
   // 添加用户消息
   const userMessage = {
     id: `user_${Date.now()}`,
@@ -244,141 +376,107 @@ const sendMessage = async () => {
     timestamp: Date.now()
   }
   messages.value.push(userMessage)
-  
-  // 清空输入和建议问题
+
+  // 清空输入
   currentInput.value = ''
-  suggestedQuestions.value = []
   adjustTextareaHeight()
-  
-  // 滚动到底部
   scrollToBottom()
-  
-  // 开始加载
   isLoading.value = true
-  
+
+  // 先检索知识库，获取相关链接（即使API失败也能展示）
+  const knowledge = searchKnowledge(message)
+  const context = knowledge.content
+  const relatedLinks = knowledge.links
+
   try {
-    // 构建请求体，按照Dify官方文档规范
+    // 构建系统提示词
+    const systemPrompt = `你是"星辰AI助手"，电子科技大学成都学院（科成）的校园问答助手。请基于提供的参考资料回答用户问题。如果参考资料中没有相关内容，请如实说明并给出通用建议。回答要简洁、友好、实用。`
+
+    const userPrompt = context
+      ? `参考资料：\n${context}\n\n用户问题：${message}`
+      : message
+
+    // 构建 OpenAI 格式请求体
     const requestBody = {
-      inputs: {},
-      query: message,
-      response_mode: 'blocking', // 使用blocking模式，streaming需要额外处理SSE
-      user: DIFY_CONFIG.user,
-      auto_generate_name: true
+      model: API_CONFIG.model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        ...messages.value.slice(-6).filter(m => !m.isUser || true).map(m => ({
+          role: m.isUser ? 'user' as const : 'assistant' as const,
+          content: m.content
+        })),
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: 0.7,
+      max_tokens: 1024
     }
-    
-    // 只有存在会话ID时才添加，避免传undefined
-    const conversationId = getConversationId()
-    if (conversationId) {
-      requestBody.conversation_id = conversationId
-    }
-    
-    console.log('发送聊天请求:', requestBody)
-    
-    // 调用Dify API
-    const response = await fetch(`${DIFY_CONFIG.baseUrl}/chat-messages`, {
+
+    console.log('发送请求:', requestBody)
+
+    const response = await fetch(`${API_CONFIG.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${DIFY_CONFIG.apiKey}`,
+        'Authorization': `Bearer ${API_CONFIG.apiKey}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(requestBody)
     })
 
     if (!response.ok) {
-      // 获取详细错误信息
       let errorMessage = '抱歉，服务暂时不可用'
-      
       try {
         const errorData = await response.json()
-        console.error('Dify API错误响应:', errorData)
-        
-        // 解析具体的错误类型
-        if (errorData.code === 'invalid_param' && errorData.message) {
-          const message = errorData.message
-          
-          // 检查是否是配额限制错误
-          if (message.includes('exceeded your current quota') || message.includes('RESOURCE_EXHAUSTED')) {
-            errorMessage = '🚫 AI服务配额已用完，请明天再试或联系管理员升级配额'
-          } else if (message.includes('rate limit') || response.status === 429) {
-            errorMessage = '⏳ 请求过于频繁，请稍后再试'
-          } else if (message.includes('API request failed')) {
-            errorMessage = '🔧 AI服务暂时不可用，请稍后重试'
-          } else {
-            errorMessage = `❌ 请求错误: ${errorData.message.substring(0, 100)}...`
-          }
-        } else {
-          errorMessage = errorData.message || errorMessage
-        }
+        console.error('API错误响应:', errorData)
+        errorMessage = errorData.error?.message || errorMessage
       } catch (e) {
         const errorText = await response.text()
         console.error(`API错误 ${response.status}:`, errorText)
-        
-        // 根据HTTP状态码提供友好的错误信息
         switch (response.status) {
-          case 400:
-            errorMessage = '❌ 请求参数错误，请稍后重试'
-            break
-          case 401:
-            errorMessage = '🔑 API密钥无效，请联系管理员'
-            break
-          case 404:
-            errorMessage = '🔍 服务不存在，请检查配置'
-            break
-          case 429:
-            errorMessage = '⏳ 请求过于频繁，请稍后重试'
-            break
-          case 500:
-            errorMessage = '🛠️ 服务器内部错误，请稍后重试'
-            break
+          case 401: errorMessage = '🔑 API密钥无效'; break
+          case 429: errorMessage = '⏳ 请求过于频繁，请稍后再试'; break
+          case 500: errorMessage = '🛠️ 服务器内部错误'; break
         }
       }
-      
       throw new Error(errorMessage)
     }
 
     const data = await response.json()
-    console.log('Dify API响应:', data)
-    
-    // 按照官方文档验证响应格式
-    if (data.event !== 'message') {
-      console.error('意外的响应格式:', data)
-      throw new Error('服务响应格式异常')
-    }
-    
-    // 添加AI回复
+    console.log('API响应:', data)
+
+    // 记录请求时间（无论成功失败都计时）
+    recordRequest()
+
+    const answer = data.choices?.[0]?.message?.content || '抱歉，我现在无法回答这个问题。'
+
     const aiMessage = {
-      id: data.message_id || `ai_${Date.now()}`,
-      content: data.answer || '抱歉，我现在无法回答这个问题。',
+      id: `ai_${Date.now()}`,
+      content: answer,
       isUser: false,
-      timestamp: data.created_at ? data.created_at * 1000 : Date.now() // Dify返回Unix时间戳(秒)
+      timestamp: Date.now(),
+      links: relatedLinks.length > 0 ? relatedLinks : undefined
     }
     messages.value.push(aiMessage)
-    
-    // 保存会话ID
-    if (data.conversation_id) {
-      sessionStorage.setItem('dify_conversation_id', data.conversation_id)
-    }
-    
-    // 保存最后一个消息ID并获取建议问题
-    if (data.message_id) {
-      lastMessageId.value = data.message_id
-      await fetchSuggestedQuestions(data.message_id)
-    }
-    
-    // 如果窗口关闭，显示未读提示
+
+    // 生成建议问题
+    generateSuggestedQuestions(message, answer)
+
     if (!isOpen.value) {
       hasUnread.value = true
     }
-    
+
   } catch (error) {
     console.error('AI对话错误:', error)
-    
-    // 添加错误消息
+    // 如果有相关链接，给出更友好的提示
+    const baseMessage = error instanceof Error ? error.message : '抱歉，服务暂时不可用，请稍后再试。'
+    const content = relatedLinks.length > 0
+      ? `${baseMessage}\n\n以下页面可能有您需要的信息：`
+      : baseMessage
     const errorMessage = {
       id: `error_${Date.now()}`,
-      content: error instanceof Error ? error.message : '抱歉，服务暂时不可用，请稍后再试。',
+      content,
       isUser: false,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      links: relatedLinks.length > 0 ? relatedLinks : undefined
     }
     messages.value.push(errorMessage)
   } finally {
@@ -387,54 +485,29 @@ const sendMessage = async () => {
   }
 }
 
-// 获取会话ID
-const getConversationId = () => {
-  return sessionStorage.getItem('dify_conversation_id') || undefined
-}
-
-// 获取建议问题 - 按照Dify官方API规范
-const fetchSuggestedQuestions = async (messageId: string) => {
-  try {
-    // 构建查询参数 - 必须包含user参数
-    const params = new URLSearchParams({
-      user: DIFY_CONFIG.user
-    })
-    
-    const url = `${DIFY_CONFIG.baseUrl}/messages/${messageId}/suggested?${params}`
-    console.log('获取建议问题URL:', url)
-    
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${DIFY_CONFIG.apiKey}`,
-        'Content-Type': 'application/json'
-      }
-    })
-
-    if (response.ok) {
-      const result = await response.json()
-      console.log('建议问题响应:', result)
-      
-      // 按照官方API规范检查响应格式
-      if (result.result === 'success' && result.data && Array.isArray(result.data) && result.data.length > 0) {
-        // data是字符串数组，直接使用
-        suggestedQuestions.value = result.data
-      } else {
-        // 如果没有建议问题或返回错误，清空数组
-        suggestedQuestions.value = []
-      }
-    } else {
-      // API调用失败，打印详细错误信息
-      const errorText = await response.text()
-      console.error(`获取建议问题失败: HTTP ${response.status}`)
-      console.error('错误响应:', errorText)
-      suggestedQuestions.value = []
-    }
-  } catch (error) {
-    console.error('获取建议问题失败:', error)
-    // 如果API失败，不显示建议问题
-    suggestedQuestions.value = []
+// 根据上下文生成建议问题
+const generateSuggestedQuestions = (question: string, answer: string) => {
+  const topicKeywords: Record<string, string[]> = {
+    '宿舍': ['宿舍怎么换？', '宿舍有空调吗？', '宿舍几点熄灯？'],
+    '食堂': ['哪个食堂好吃？', '食堂营业时间？', '食堂价格怎么样？'],
+    '选课': ['选课什么时候开始？', '怎么选体育课？', '选课系统打不开怎么办？'],
+    '社团': ['有哪些社团？', '怎么加入社团？', '社团活动多吗？'],
+    '实验室': ['怎么加入实验室？', '有哪些实验室？', '实验室招新条件？'],
+    '军训': ['军训多长时间？', '军训要准备什么？', '军训可以请假吗？'],
+    '校园网': ['校园网怎么连？', '校园卡怎么办？', '宽带怎么装？'],
+    '快递': ['快递站在哪？', '快递怎么取？', '可以寄快递吗？'],
+    '防骗': ['新生防骗指南', '怎么识别诈骗？', '校园贷是什么？'],
+    '图书馆': ['图书馆开放时间？', '怎么借书？', '图书馆有WiFi吗？'],
   }
+
+  const combined = question + answer
+  for (const [keyword, questions] of Object.entries(topicKeywords)) {
+    if (combined.includes(keyword)) {
+      suggestedQuestions.value = questions
+      return
+    }
+  }
+  suggestedQuestions.value = []
 }
 
 // 滚动到底部
@@ -596,6 +669,7 @@ const handleClickOutside = (event: Event) => {
 
 onMounted(() => {
   document.addEventListener('click', handleClickOutside)
+  loadKnowledge()
 })
 
 onUnmounted(() => {
@@ -925,6 +999,51 @@ onUnmounted(() => {
   padding: 0 14px;
 }
 
+/* 相关页面链接 */
+.message-links {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: var(--vp-c-bg-mute);
+  border-radius: 8px;
+  border: 1px solid var(--vp-c-divider);
+}
+
+.links-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--vp-c-text-2);
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+
+.links-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.link-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--vp-c-brand-1);
+  text-decoration: none;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  background: var(--vp-c-bg);
+  border: 1px solid transparent;
+}
+
+.link-item:hover {
+  background: var(--vp-c-brand-soft);
+  border-color: var(--vp-c-brand-1);
+  color: var(--vp-c-brand-2);
+}
+
 /* 加载动画 */
 .typing-indicator {
   display: flex;
@@ -1093,6 +1212,11 @@ onUnmounted(() => {
   color: var(--vp-c-text-3);
   margin-top: 8px;
   text-align: center;
+}
+
+.cooldown-tip {
+  color: var(--vp-c-warning-1, #f59e0b);
+  font-weight: 500;
 }
 
 /* 动画效果 */

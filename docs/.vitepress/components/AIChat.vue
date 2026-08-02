@@ -189,7 +189,7 @@ const textareaRef = ref<HTMLTextAreaElement>()
 // API配置 - OpenAI兼容接口
 const API_CONFIG = {
   baseUrl: 'https://hub.linux.do/v1',
-  apiKey: 'ah-6299cbb81666be776eadb25506b0d7896f3ce2b1d358b9d4d044d844b982e99a',
+  apiKey: 'YOUR_API_KEY_HERE',
   model: 'step-3.5-flash'
 }
 

@@ -199,15 +199,37 @@ const isApiAvailable = () => {
 }
 
 // 知识库
-const knowledgeBase = ref<Array<{ title: string; content: string; url: string }>>([])
+interface KnowledgeItem {
+  title: string
+  section: string
+  content: string
+  url: string
+}
+const knowledgeBase = ref<KnowledgeItem[]>([])
 
-// 加载知识库
+// 知识库缓存
+const KNOWLEDGE_CACHE_KEY = 'ai_knowledge_cache'
+const KNOWLEDGE_VERSION_KEY = 'ai_knowledge_version'
+const CURRENT_VERSION = '2'
+
 const loadKnowledge = async () => {
   try {
+    // 优先读缓存
+    const cached = localStorage.getItem(KNOWLEDGE_CACHE_KEY)
+    const version = localStorage.getItem(KNOWLEDGE_VERSION_KEY)
+    if (cached && version === CURRENT_VERSION) {
+      knowledgeBase.value = JSON.parse(cached)
+      console.log(`知识库从缓存加载: ${knowledgeBase.value.length} 条`)
+      return
+    }
+    // 缓存未命中，拉取远程
     const res = await fetch('/knowledge.json')
     if (res.ok) {
-      knowledgeBase.value = await res.json()
-      console.log(`知识库加载完成: ${knowledgeBase.value.length} 条`)
+      const data = await res.json()
+      knowledgeBase.value = data
+      localStorage.setItem(KNOWLEDGE_CACHE_KEY, JSON.stringify(data))
+      localStorage.setItem(KNOWLEDGE_VERSION_KEY, CURRENT_VERSION)
+      console.log(`知识库远程加载: ${data.length} 条`)
     }
   } catch (e) {
     console.warn('知识库加载失败:', e)
@@ -225,14 +247,12 @@ const searchKnowledge = (query: string): KnowledgeResult => {
   // 提取关键词：中文按2-4字切分，英文按空格切分
   const cleanQuery = query.replace(/[？，。！、\s\.\?\!]/g, '')
   const keywords: string[] = []
-  // 中文关键词：2-4字的子串
   for (let len = 4; len >= 2; len--) {
     for (let i = 0; i <= cleanQuery.length - len; i++) {
       const sub = cleanQuery.substring(i, i + len)
       if (/[一-龥]/.test(sub)) keywords.push(sub)
     }
   }
-  // 英文关键词
   query.split(/\s+/).filter(k => k.length > 1 && /[\da-z]/i.test(k)).forEach(k => keywords.push(k.toLowerCase()))
   if (!keywords.length) return { content: '', links: [] }
 
@@ -240,28 +260,37 @@ const searchKnowledge = (query: string): KnowledgeResult => {
     let score = 0
     const lowerContent = item.content.toLowerCase()
     const lowerTitle = item.title.toLowerCase()
+    const lowerSection = (item.section || '').toLowerCase()
     keywords.forEach(kw => {
       const lower = kw.toLowerCase()
-      if (lowerContent.includes(lower)) score += 1
+      if (lowerSection.includes(lower)) score += 3  // 章节匹配权重最高
       if (lowerTitle.includes(lower)) score += 2
+      if (lowerContent.includes(lower)) score += 1
     })
     return { ...item, score }
   }).filter(item => item.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, 3)
 
-  // 去重链接
+  // 去重链接，保留最佳匹配
   const seen = new Set<string>()
   const links = scored
     .filter(item => {
-      if (seen.has(item.url)) return false
-      seen.add(item.url)
+      const key = item.url.split('#')[0] // 同页面去重
+      if (seen.has(key)) return false
+      seen.add(key)
       return true
     })
-    .map(item => ({ title: item.title, url: item.url }))
+    .map(item => ({
+      title: item.section ? `${item.title} > ${item.section}` : item.title,
+      url: item.url
+    }))
 
   return {
-    content: scored.map(item => `【${item.title}】${item.content}`).join('\n\n'),
+    content: scored.map(item => {
+      const label = item.section ? `【${item.title} > ${item.section}】` : `【${item.title}】`
+      return `${label}${item.content}`
+    }).join('\n\n'),
     links
   }
 }

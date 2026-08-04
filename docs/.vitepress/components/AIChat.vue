@@ -22,7 +22,7 @@
             <Icon icon="ri:robot-2-fill" class="header-icon" />
             <div>
               <div class="header-title">星辰-AI助手</div>
-              <div class="header-subtitle">{{ isApiAvailable() ? '基于校园知识库的AI助手' : '基于校园知识库的页面推荐' }}</div>
+              <div class="header-subtitle">基于校园知识库的AI助手</div>
             </div>
           </div>
           <div class="header-actions">
@@ -42,7 +42,7 @@
             <Icon icon="ri:robot-2-line" class="welcome-icon" />
             <div class="welcome-text">
               <h3>👋 欢迎使用科成AI助手！</h3>
-              <p>{{ isApiAvailable() ? '我可以帮您解答关于校园生活、实验室、社团等各种问题。' : '当前为页面推荐模式，我会为您查找相关页面。' }}</p>
+              <p>我可以帮您解答关于校园生活、实验室、社团等各种问题。</p>
               <div class="quick-questions">
                 <button 
                   v-for="question in quickQuestions" 
@@ -206,42 +206,80 @@ const isApiAvailable = () => {
   return API_CONFIG.apiKey && API_CONFIG.apiKey !== 'YOUR_API_KEY_HERE'
 }
 
-// 纯JS HMAC-SHA256 实现（兼容微信/QQ内置浏览器）
+// 纯JS SHA-256 实现（兼容所有浏览器，不依赖 crypto.subtle）
+const sha256Pure = (str: string): string => {
+  const K = [
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+  ]
+
+  const encoder = new TextEncoder()
+  const data = encoder.encode(str)
+  const l = data.length * 8
+  const n = Math.ceil((l + 65) / 512)
+  const m = new Uint8Array(n * 64)
+  m.set(data)
+  m[data.length] = 0x80
+  m[n * 64 - 1] = l & 0xff
+  m[n * 64 - 2] = (l >>> 8) & 0xff
+  m[n * 64 - 3] = (l >>> 16) & 0xff
+  m[n * 64 - 4] = (l >>> 24) & 0xff
+
+  let h0 = 0x6a09e667, h1 = 0xbb67ae85, h2 = 0x3c6ef372, h3 = 0xa54ff53a
+  let h4 = 0x510e527f, h5 = 0x9b05688c, h6 = 0x1f83d9ab, h7 = 0x5be0cd19
+
+  const w = new Uint32Array(64)
+  for (let i = 0; i < n * 64; i += 64) {
+    for (let j = 0; j < 16; j++) {
+      w[j] = (m[i + j * 4] << 24) | (m[i + j * 4 + 1] << 16) | (m[i + j * 4 + 2] << 8) | m[i + j * 4 + 3]
+    }
+    for (let j = 16; j < 64; j++) {
+      const s0 = ((w[j - 15] >>> 7) | (w[j - 15] << 25)) ^ ((w[j - 15] >>> 18) | (w[j - 15] << 14)) ^ (w[j - 15] >>> 3)
+      const s1 = ((w[j - 2] >>> 17) | (w[j - 2] << 15)) ^ ((w[j - 2] >>> 19) | (w[j - 2] << 13)) ^ (w[j - 2] >>> 10)
+      w[j] = (w[j - 16] + s0 + w[j - 7] + s1) | 0
+    }
+    let a = h0, b = h1, c = h2, d = h3, e = h4, f = h5, g = h6, h = h7
+    for (let j = 0; j < 64; j++) {
+      const S1 = ((e >>> 6) | (e << 26)) ^ ((e >>> 11) | (e << 21)) ^ ((e >>> 25) | (e << 7))
+      const ch = (e & f) ^ (~e & g)
+      const t1 = (h + S1 + ch + K[j] + w[j]) | 0
+      const S0 = ((a >>> 2) | (a << 30)) ^ ((a >>> 13) | (a << 19)) ^ ((a >>> 22) | (a << 10))
+      const maj = (a & b) ^ (a & c) ^ (b & c)
+      const t2 = (S0 + maj) | 0
+      h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0
+    }
+    h0 = (h0 + a) | 0; h1 = (h1 + b) | 0; h2 = (h2 + c) | 0; h3 = (h3 + d) | 0
+    h4 = (h4 + e) | 0; h5 = (h5 + f) | 0; h6 = (h6 + g) | 0; h7 = (h7 + h) | 0
+  }
+
+  const result = new Uint8Array(32)
+  for (let i = 0; i < 4; i++) {
+    result[i] = (h0 >>> (24 - i * 8)) & 0xff
+    result[i + 4] = (h1 >>> (24 - i * 8)) & 0xff
+    result[i + 8] = (h2 >>> (24 - i * 8)) & 0xff
+    result[i + 12] = (h3 >>> (24 - i * 8)) & 0xff
+    result[i + 16] = (h4 >>> (24 - i * 8)) & 0xff
+    result[i + 20] = (h5 >>> (24 - i * 8)) & 0xff
+    result[i + 24] = (h6 >>> (24 - i * 8)) & 0xff
+    result[i + 28] = (h7 >>> (24 - i * 8)) & 0xff
+  }
+  return String.fromCharCode(...result)
+}
+
+// 纯JS HMAC-SHA256 实现（兼容微信/QQ内置浏览器，不依赖 crypto.subtle）
 const hmacSha256 = async (key: string, message: string): Promise<string> => {
-  // 优先使用 crypto.subtle（HTTPS环境）
-  if (typeof crypto !== 'undefined' && crypto.subtle) {
-    try {
-      const encoder = new TextEncoder()
-      const cryptoKey = await crypto.subtle.importKey(
-        'raw', encoder.encode(key),
-        { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
-      )
-      const signature = await crypto.subtle.sign('HMAC', cryptoKey, encoder.encode(message))
-      return btoa(String.fromCharCode(...new Uint8Array(signature)))
-    } catch (e) {
-      console.warn('crypto.subtle 失败，使用纯JS实现:', e)
-    }
-  }
-
-  // 纯JS后备实现（简化版，仅用于HMAC-SHA256签名）
-  const sha256 = async (str: string): Promise<string> => {
-    // 使用 SubtleCrypto 如果可用
-    if (typeof crypto !== 'undefined' && crypto.subtle) {
-      const encoder = new TextEncoder()
-      const hash = await crypto.subtle.digest('SHA-256', encoder.encode(str))
-      return String.fromCharCode(...new Uint8Array(hash))
-    }
-    // 否则使用简单的哈希（不推荐，但作为最后手段）
-    throw new Error('无法计算SHA256')
-  }
-
-  // HMAC-SHA256 标准实现
   const blockSize = 64
   const keyBytes = new TextEncoder().encode(key)
   let keyArray = new Uint8Array(blockSize)
 
   if (keyBytes.length > blockSize) {
-    const hash = await sha256(key)
+    const hash = sha256Pure(key)
     for (let i = 0; i < hash.length; i++) keyArray[i] = hash.charCodeAt(i)
   } else {
     for (let i = 0; i < keyBytes.length; i++) keyArray[i] = keyBytes[i]
@@ -259,12 +297,12 @@ const hmacSha256 = async (key: string, message: string): Promise<string> => {
   innerData.set(ipad, 0)
   innerData.set(msgBytes, blockSize)
 
-  const innerHash = await sha256(String.fromCharCode(...innerData))
+  const innerHash = sha256Pure(String.fromCharCode(...innerData))
   const outerData = new Uint8Array(blockSize + innerHash.length)
   outerData.set(opad, 0)
   for (let i = 0; i < innerHash.length; i++) outerData[blockSize + i] = innerHash.charCodeAt(i)
 
-  const result = await sha256(String.fromCharCode(...outerData))
+  const result = sha256Pure(String.fromCharCode(...outerData))
   return btoa(result)
 }
 

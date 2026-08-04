@@ -115,6 +115,14 @@ import AppList from "/.vitepress/components/AppList.vue";
 
 <AppList :data="$frontmatter.life" />
 
-## 小程序&公众号
+## 公众号
 
-<AppList :data="$frontmatter.weixin" />
+<AppList :data="$frontmatter.gzh" />
+
+## 服务号
+
+<AppList :data="$frontmatter.fwh" />
+
+## 小程序
+
+<AppList :data="$frontmatter.xcx" />

@@ -24,14 +24,15 @@ weixin:
     name: 电子科技大学成都学院财务部
     icon: https://tvax2.sinaimg.cn/large/008IDFKely1hznkki4lfqj30hs0hs0to.jpg
     desc:
-      - 推送电子科技大学成都学院官方信息
-      - 缴纳学费，电费等
+      - 服务号
+      - 水电缴费及各类充值服务（电费、水费等）
+      - 每位学生必备
   dzkjdxcdxy:
     name: 电子科技大学成都学院
     icon: https://tvax2.sinaimg.cn/large/008IDFKely1hznkki4lfqj30hs0hs0to.jpg
     desc:
-      - 推送电子科技大学成都学院官方信息
-      - 通知信息
+      - 公众号（非服务号）
+      - 查看校内资讯和相关新闻
   dzkjdxcdxybyxl:
     name: 电子科技大学成都学院百叶心理
     icon: https://tvax2.sinaimg.cn/large/008IDFKely1hznkki4lfqj30hs0hs0to.jpg
@@ -56,6 +57,14 @@ weixin:
     desc:
       - 计算机学院的官方微信公众号，计算机学院的同学最好加一下
       - 通知信息
+
+xcx:
+  haile:
+    name: 海乐生活
+    icon: https://tvax2.sinaimg.cn/large/008IDFKely1hznkki4lfqj30hs0hs0to.jpg
+    desc:
+      - 微信小程序
+      - 成都校区洗衣房必备，用于扫码洗衣
 ---
 
 <script setup>
@@ -67,3 +76,7 @@ import AppList from "/.vitepress/components/AppList.vue";
 ## 官方公众号
 
 <AppList :data="$frontmatter.weixin" />
+
+## 小程序
+
+<AppList :data="$frontmatter.xcx" />

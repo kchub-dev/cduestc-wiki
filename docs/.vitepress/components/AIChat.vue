@@ -22,7 +22,7 @@
             <Icon icon="ri:robot-2-fill" class="header-icon" />
             <div>
               <div class="header-title">星辰-AI助手</div>
-              <div class="header-subtitle">基于校园知识库的AI助手</div>
+              <div class="header-subtitle">{{ isApiAvailable() ? '基于校园知识库的AI助手' : '基于校园知识库的页面推荐' }}</div>
             </div>
           </div>
           <div class="header-actions">
@@ -42,7 +42,7 @@
             <Icon icon="ri:robot-2-line" class="welcome-icon" />
             <div class="welcome-text">
               <h3>👋 欢迎使用科成AI助手！</h3>
-              <p>我可以帮您解答关于校园生活、实验室、社团等各种问题。</p>
+              <p>{{ isApiAvailable() ? '我可以帮您解答关于校园生活、实验室、社团等各种问题。' : '当前为页面推荐模式，我会为您查找相关页面。' }}</p>
               <div class="quick-questions">
                 <button 
                   v-for="question in quickQuestions" 
@@ -186,11 +186,115 @@ const suggestedQuestions = ref<string[]>([])
 const messagesContainer = ref<HTMLElement>()
 const textareaRef = ref<HTMLTextAreaElement>()
 
-// API配置 - OpenAI兼容接口
+// API配置 - 讯飞星火助手（优先）
+const SPARK_CONFIG = {
+  appId: 'df5b1bc2',
+  apiKey: '2cf0bf57b33b0747f5adb73a33adccaa',
+  apiSecret: 'M2RmZTM3YjQ0ZjI3NmM3NjQxN2QyMGYy',
+  assistantUrl: 'wss://spark-openapi.cn-huabei-1.xf-yun.com/v1/assistants/28hof4yktszs_v1'
+}
+
+// API配置 - OpenAI兼容接口（降级）
 const API_CONFIG = {
   baseUrl: 'https://hub.linux.do/v1',
   apiKey: 'ah-6299cbb81666be776eadb25506b0d7896f3ce2b1d358b9d4d044d844b982e99a',
   model: 'step-3.5-flash'
+}
+
+// 检查 API 是否可用
+const isApiAvailable = () => {
+  return API_CONFIG.apiKey && API_CONFIG.apiKey !== 'YOUR_API_KEY_HERE'
+}
+
+// 讯飞星火助手 WebSocket 调用
+const callSparkAssistant = (userMessage: string, context: string): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    // 动态导入 crypto 库（浏览器端用 SubtleCrypto）
+    const encoder = new TextEncoder()
+
+    // 生成鉴权URL
+    const url = new URL(SPARK_CONFIG.assistantUrl)
+    const host = url.host
+    const path = url.pathname
+    const date = new Date().toUTCString()
+
+    // HMAC-SHA256 签名（浏览器端）
+    const sign = async () => {
+      const signatureOrigin = `host: ${host}\ndate: ${date}\nGET ${path} HTTP/1.1`
+      const key = await crypto.subtle.importKey(
+        'raw', encoder.encode(SPARK_CONFIG.apiSecret),
+        { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+      )
+      const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(signatureOrigin))
+      const signatureSha = btoa(String.fromCharCode(...new Uint8Array(signature)))
+
+      const authorizationOrigin = `api_key="${SPARK_CONFIG.apiKey}", algorithm="hmac-sha256", headers="host date request-line", signature="${signatureSha}"`
+      const authorization = btoa(authorizationOrigin)
+
+      return `${SPARK_CONFIG.assistantUrl}?authorization=${encodeURIComponent(authorization)}&date=${encodeURIComponent(date)}&host=${encodeURIComponent(host)}`
+    }
+
+    sign().then(wsUrl => {
+      const ws = new WebSocket(wsUrl)
+      let fullContent = ''
+      let timeout = setTimeout(() => {
+        ws.close()
+        reject(new Error('讯飞助手响应超时'))
+      }, 30000)
+
+      ws.onopen = () => {
+        const prompt = context
+          ? `参考资料：\n${context}\n\n用户问题：${userMessage}`
+          : userMessage
+
+        ws.send(JSON.stringify({
+          header: { app_id: SPARK_CONFIG.appId, uid: 'wiki_user' },
+          parameter: {
+            chat: { domain: 'general', temperature: 0.5, max_tokens: 1024 }
+          },
+          payload: {
+            message: {
+              text: [{ role: 'user', content: prompt }]
+            }
+          }
+        }))
+      }
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data)
+        const code = data.header?.code
+        const status = data.header?.status
+
+        if (code !== 0) {
+          clearTimeout(timeout)
+          ws.close()
+          reject(new Error(`讯飞错误: ${code} - ${data.header?.message}`))
+          return
+        }
+
+        const textList = data.payload?.choices?.text || []
+        for (const item of textList) {
+          if (item.content) fullContent += item.content
+        }
+
+        if (status === 2) {
+          clearTimeout(timeout)
+          ws.close()
+          resolve(fullContent)
+        }
+      }
+
+      ws.onerror = () => {
+        clearTimeout(timeout)
+        reject(new Error('讯飞WebSocket连接失败'))
+      }
+
+      ws.onclose = () => {
+        clearTimeout(timeout)
+        if (!fullContent) reject(new Error('讯飞连接已关闭'))
+      }
+    }).catch(reject)
+  })
 }
 
 // 知识库
@@ -356,8 +460,8 @@ const sendMessage = async () => {
   const message = currentInput.value.trim()
   if (!message || isLoading.value) return
 
-  // 频率限制检查
-  if (!checkRateLimit()) {
+  // 频率限制检查（仅在有API时限制）
+  if (isApiAvailable() && !checkRateLimit()) {
     messages.value.push({
       id: `rate_${Date.now()}`,
       content: `⏳ 操作过于频繁，请等待 ${cooldownLeft.value} 秒后再试。`,
@@ -383,106 +487,113 @@ const sendMessage = async () => {
   scrollToBottom()
   isLoading.value = true
 
-  // 先检索知识库，获取相关链接（即使API失败也能展示）
+  // 先检索知识库，获取相关链接
   const knowledge = searchKnowledge(message)
   const context = knowledge.content
   const relatedLinks = knowledge.links
 
-  try {
-    // 构建系统提示词
-    const systemPrompt = `你是"星辰AI助手"，电子科技大学成都学院（科成）的校园问答助手。请基于提供的参考资料回答用户问题。如果参考资料中没有相关内容，请如实说明并给出通用建议。回答要简洁、友好、实用。`
-
-    const userPrompt = context
-      ? `参考资料：\n${context}\n\n用户问题：${message}`
-      : message
-
-    // 构建 OpenAI 格式请求体
-    const requestBody = {
-      model: API_CONFIG.model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        ...messages.value.slice(-6).filter(m => !m.isUser || true).map(m => ({
-          role: m.isUser ? 'user' as const : 'assistant' as const,
-          content: m.content
-        })),
-        { role: 'user', content: userPrompt }
-      ],
-      temperature: 0.7,
-      max_tokens: 1024
-    }
-
-    console.log('发送请求:', requestBody)
-
-    const response = await fetch(`${API_CONFIG.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${API_CONFIG.apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(requestBody)
-    })
-
-    if (!response.ok) {
-      let errorMessage = '抱歉，服务暂时不可用'
-      try {
-        const errorData = await response.json()
-        console.error('API错误响应:', errorData)
-        errorMessage = errorData.error?.message || errorMessage
-      } catch (e) {
-        const errorText = await response.text()
-        console.error(`API错误 ${response.status}:`, errorText)
-        switch (response.status) {
-          case 401: errorMessage = '🔑 API密钥无效'; break
-          case 429: errorMessage = '⏳ 请求过于频繁，请稍后再试'; break
-          case 500: errorMessage = '🛠️ 服务器内部错误'; break
-        }
-      }
-      throw new Error(errorMessage)
-    }
-
-    const data = await response.json()
-    console.log('API响应:', data)
-
-    // 记录请求时间（无论成功失败都计时）
-    recordRequest()
-
-    const answer = data.choices?.[0]?.message?.content || '抱歉，我现在无法回答这个问题。'
+  // 如果 API 不可用，直接降级为纯推荐模式
+  if (!isApiAvailable()) {
+    const hasLinks = relatedLinks.length > 0
+    const content = hasLinks
+      ? '🔍 当前没有AI模型介入，以下是根据您的问题为您找到的相关页面：'
+      : '🔍 当前没有AI模型介入，知识库中暂未找到相关页面。\n\n您可以尝试换个关键词，或直接浏览左侧菜单查找信息。'
 
     const aiMessage = {
       id: `ai_${Date.now()}`,
-      content: answer,
-      isUser: false,
-      timestamp: Date.now(),
-      links: relatedLinks.length > 0 ? relatedLinks : undefined
-    }
-    messages.value.push(aiMessage)
-
-    // 生成建议问题
-    generateSuggestedQuestions(message, answer)
-
-    if (!isOpen.value) {
-      hasUnread.value = true
-    }
-
-  } catch (error) {
-    console.error('AI对话错误:', error)
-    // 如果有相关链接，给出更友好的提示
-    const baseMessage = error instanceof Error ? error.message : '抱歉，服务暂时不可用，请稍后再试。'
-    const content = relatedLinks.length > 0
-      ? `${baseMessage}\n\n以下页面可能有您需要的信息：`
-      : baseMessage
-    const errorMessage = {
-      id: `error_${Date.now()}`,
       content,
       isUser: false,
       timestamp: Date.now(),
-      links: relatedLinks.length > 0 ? relatedLinks : undefined
+      links: hasLinks ? relatedLinks : undefined
     }
-    messages.value.push(errorMessage)
-  } finally {
+    messages.value.push(aiMessage)
     isLoading.value = false
     scrollToBottom()
+    return
   }
+
+  // 三级降级：讯飞助手 → OpenAI → 纯推荐
+  let answer = ''
+
+  // 第一级：尝试讯飞星火助手
+  try {
+    console.log('尝试讯飞星火助手...')
+    answer = await callSparkAssistant(message, context)
+    console.log('讯飞助手调用成功')
+    recordRequest()
+  } catch (sparkError) {
+    console.warn('讯飞助手失败，尝试OpenAI:', sparkError)
+
+    // 第二级：尝试 OpenAI 兼容接口
+    if (isApiAvailable()) {
+      try {
+        const systemPrompt = `你是"星辰AI助手"，电子科技大学成都学院（科成）的校园问答助手。请基于提供的参考资料回答用户问题。如果参考资料中没有相关内容，请如实说明并给出通用建议。回答要简洁、友好、实用。`
+
+        const userPrompt = context
+          ? `参考资料：\n${context}\n\n用户问题：${message}`
+          : message
+
+        const response = await fetch(`${API_CONFIG.baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${API_CONFIG.apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: API_CONFIG.model,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              ...messages.value.slice(-6).map(m => ({
+                role: m.isUser ? 'user' as const : 'assistant' as const,
+                content: m.content
+              })),
+              { role: 'user', content: userPrompt }
+            ],
+            temperature: 0.7,
+            max_tokens: 1024
+          })
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          answer = data.choices?.[0]?.message?.content || ''
+          recordRequest()
+          console.log('OpenAI调用成功')
+        } else {
+          console.warn('OpenAI响应错误:', response.status)
+        }
+      } catch (openaiError) {
+        console.warn('OpenAI调用失败:', openaiError)
+      }
+    }
+  }
+
+  // 第三级：降级为纯推荐模式
+  if (!answer) {
+    const hasLinks = relatedLinks.length > 0
+    answer = hasLinks
+      ? '🔍 当前AI服务暂不可用，以下是根据您的问题为您找到的相关页面：'
+      : '🔍 当前AI服务暂不可用，知识库中暂未找到相关页面。\n\n您可以尝试换个关键词，或直接浏览左侧菜单查找信息。'
+  }
+
+  const aiMessage = {
+    id: `ai_${Date.now()}`,
+    content: answer,
+    isUser: false,
+    timestamp: Date.now(),
+    links: relatedLinks.length > 0 ? relatedLinks : undefined
+  }
+  messages.value.push(aiMessage)
+
+  // 生成建议问题
+  generateSuggestedQuestions(message, answer)
+
+  if (!isOpen.value) {
+    hasUnread.value = true
+  }
+
+  isLoading.value = false
+  scrollToBottom()
 }
 
 // 根据上下文生成建议问题

@@ -9,7 +9,7 @@ export default defineConfig({
     description: '电子科技大学成都学院第三方公益校园生活百科',
     lastUpdated: true,
     cleanUrls: true,
-    base: '/cduestc-wiki/',
+    base: '/',
 
     themeConfig: {
         // https://vitepress.dev/zh/reference/default-theme-config

@@ -186,16 +186,115 @@ const suggestedQuestions = ref<string[]>([])
 const messagesContainer = ref<HTMLElement>()
 const textareaRef = ref<HTMLTextAreaElement>()
 
-// API配置 - OpenAI兼容接口
+// API配置 - 讯飞星火助手（优先）
+const SPARK_CONFIG = {
+  appId: 'df5b1bc2',
+  apiKey: '2cf0bf57b33b0747f5adb73a33adccaa',
+  apiSecret: 'M2RmZTM3YjQ0ZjI3NmM3NjQxN2QyMGYy',
+  assistantUrl: 'wss://spark-openapi.cn-huabei-1.xf-yun.com/v1/assistants/28hof4yktszs_v1'
+}
+
+// API配置 - OpenAI兼容接口（降级）
 const API_CONFIG = {
   baseUrl: 'https://hub.linux.do/v1',
-  apiKey: 'YOUR_API_KEY_HERE',
+  apiKey: 'ah-6299cbb81666be776eadb25506b0d7896f3ce2b1d358b9d4d044d844b982e99a',
   model: 'step-3.5-flash'
 }
 
 // 检查 API 是否可用
 const isApiAvailable = () => {
   return API_CONFIG.apiKey && API_CONFIG.apiKey !== 'YOUR_API_KEY_HERE'
+}
+
+// 讯飞星火助手 WebSocket 调用
+const callSparkAssistant = (userMessage: string, context: string): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    // 动态导入 crypto 库（浏览器端用 SubtleCrypto）
+    const encoder = new TextEncoder()
+
+    // 生成鉴权URL
+    const url = new URL(SPARK_CONFIG.assistantUrl)
+    const host = url.host
+    const path = url.pathname
+    const date = new Date().toUTCString()
+
+    // HMAC-SHA256 签名（浏览器端）
+    const sign = async () => {
+      const signatureOrigin = `host: ${host}\ndate: ${date}\nGET ${path} HTTP/1.1`
+      const key = await crypto.subtle.importKey(
+        'raw', encoder.encode(SPARK_CONFIG.apiSecret),
+        { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+      )
+      const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(signatureOrigin))
+      const signatureSha = btoa(String.fromCharCode(...new Uint8Array(signature)))
+
+      const authorizationOrigin = `api_key="${SPARK_CONFIG.apiKey}", algorithm="hmac-sha256", headers="host date request-line", signature="${signatureSha}"`
+      const authorization = btoa(authorizationOrigin)
+
+      return `${SPARK_CONFIG.assistantUrl}?authorization=${encodeURIComponent(authorization)}&date=${encodeURIComponent(date)}&host=${encodeURIComponent(host)}`
+    }
+
+    sign().then(wsUrl => {
+      const ws = new WebSocket(wsUrl)
+      let fullContent = ''
+      let timeout = setTimeout(() => {
+        ws.close()
+        reject(new Error('讯飞助手响应超时'))
+      }, 30000)
+
+      ws.onopen = () => {
+        const prompt = context
+          ? `参考资料：\n${context}\n\n用户问题：${userMessage}`
+          : userMessage
+
+        ws.send(JSON.stringify({
+          header: { app_id: SPARK_CONFIG.appId, uid: 'wiki_user' },
+          parameter: {
+            chat: { domain: 'general', temperature: 0.5, max_tokens: 1024 }
+          },
+          payload: {
+            message: {
+              text: [{ role: 'user', content: prompt }]
+            }
+          }
+        }))
+      }
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data)
+        const code = data.header?.code
+        const status = data.header?.status
+
+        if (code !== 0) {
+          clearTimeout(timeout)
+          ws.close()
+          reject(new Error(`讯飞错误: ${code} - ${data.header?.message}`))
+          return
+        }
+
+        const textList = data.payload?.choices?.text || []
+        for (const item of textList) {
+          if (item.content) fullContent += item.content
+        }
+
+        if (status === 2) {
+          clearTimeout(timeout)
+          ws.close()
+          resolve(fullContent)
+        }
+      }
+
+      ws.onerror = () => {
+        clearTimeout(timeout)
+        reject(new Error('讯飞WebSocket连接失败'))
+      }
+
+      ws.onclose = () => {
+        clearTimeout(timeout)
+        if (!fullContent) reject(new Error('讯飞连接已关闭'))
+      }
+    }).catch(reject)
+  })
 }
 
 // 知识库
@@ -413,95 +512,88 @@ const sendMessage = async () => {
     return
   }
 
-  // API 可用，正常调用
+  // 三级降级：讯飞助手 → OpenAI → 纯推荐
+  let answer = ''
+
+  // 第一级：尝试讯飞星火助手
   try {
-    const systemPrompt = `你是"星辰AI助手"，电子科技大学成都学院（科成）的校园问答助手。请基于提供的参考资料回答用户问题。如果参考资料中没有相关内容，请如实说明并给出通用建议。回答要简洁、友好、实用。`
-
-    const userPrompt = context
-      ? `参考资料：\n${context}\n\n用户问题：${message}`
-      : message
-
-    const requestBody = {
-      model: API_CONFIG.model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        ...messages.value.slice(-6).filter(m => !m.isUser || true).map(m => ({
-          role: m.isUser ? 'user' as const : 'assistant' as const,
-          content: m.content
-        })),
-        { role: 'user', content: userPrompt }
-      ],
-      temperature: 0.7,
-      max_tokens: 1024
-    }
-
-    const response = await fetch(`${API_CONFIG.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${API_CONFIG.apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(requestBody)
-    })
-
-    if (!response.ok) {
-      // API 调用失败，降级为推荐模式
-      console.warn('API调用失败，降级为推荐模式')
-      const hasLinks = relatedLinks.length > 0
-      const content = hasLinks
-        ? '⚠️ AI服务暂时不可用，以下是根据您的问题为您找到的相关页面：'
-        : '⚠️ AI服务暂时不可用，知识库中暂未找到相关页面。\n\n您可以尝试换个关键词，或直接浏览左侧菜单查找信息。'
-
-      const aiMessage = {
-        id: `ai_${Date.now()}`,
-        content,
-        isUser: false,
-        timestamp: Date.now(),
-        links: hasLinks ? relatedLinks : undefined
-      }
-      messages.value.push(aiMessage)
-      return
-    }
-
-    const data = await response.json()
+    console.log('尝试讯飞星火助手...')
+    answer = await callSparkAssistant(message, context)
+    console.log('讯飞助手调用成功')
     recordRequest()
+  } catch (sparkError) {
+    console.warn('讯飞助手失败，尝试OpenAI:', sparkError)
 
-    const answer = data.choices?.[0]?.message?.content || '抱歉，我现在无法回答这个问题。'
+    // 第二级：尝试 OpenAI 兼容接口
+    if (isApiAvailable()) {
+      try {
+        const systemPrompt = `你是"星辰AI助手"，电子科技大学成都学院（科成）的校园问答助手。请基于提供的参考资料回答用户问题。如果参考资料中没有相关内容，请如实说明并给出通用建议。回答要简洁、友好、实用。`
 
-    const aiMessage = {
-      id: `ai_${Date.now()}`,
-      content: answer,
-      isUser: false,
-      timestamp: Date.now(),
-      links: relatedLinks.length > 0 ? relatedLinks : undefined
+        const userPrompt = context
+          ? `参考资料：\n${context}\n\n用户问题：${message}`
+          : message
+
+        const response = await fetch(`${API_CONFIG.baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${API_CONFIG.apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: API_CONFIG.model,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              ...messages.value.slice(-6).map(m => ({
+                role: m.isUser ? 'user' as const : 'assistant' as const,
+                content: m.content
+              })),
+              { role: 'user', content: userPrompt }
+            ],
+            temperature: 0.7,
+            max_tokens: 1024
+          })
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          answer = data.choices?.[0]?.message?.content || ''
+          recordRequest()
+          console.log('OpenAI调用成功')
+        } else {
+          console.warn('OpenAI响应错误:', response.status)
+        }
+      } catch (openaiError) {
+        console.warn('OpenAI调用失败:', openaiError)
+      }
     }
-    messages.value.push(aiMessage)
-
-    generateSuggestedQuestions(message, answer)
-
-    if (!isOpen.value) {
-      hasUnread.value = true
-    }
-
-  } catch (error) {
-    console.error('AI对话错误，降级为推荐模式:', error)
-    const hasLinks = relatedLinks.length > 0
-    const content = hasLinks
-      ? '⚠️ AI服务暂时不可用，以下是根据您的问题为您找到的相关页面：'
-      : '⚠️ AI服务暂时不可用，知识库中暂未找到相关页面。\n\n您可以尝试换个关键词，或直接浏览左侧菜单查找信息。'
-
-    const aiMessage = {
-      id: `error_${Date.now()}`,
-      content,
-      isUser: false,
-      timestamp: Date.now(),
-      links: hasLinks ? relatedLinks : undefined
-    }
-    messages.value.push(aiMessage)
-  } finally {
-    isLoading.value = false
-    scrollToBottom()
   }
+
+  // 第三级：降级为纯推荐模式
+  if (!answer) {
+    const hasLinks = relatedLinks.length > 0
+    answer = hasLinks
+      ? '🔍 当前AI服务暂不可用，以下是根据您的问题为您找到的相关页面：'
+      : '🔍 当前AI服务暂不可用，知识库中暂未找到相关页面。\n\n您可以尝试换个关键词，或直接浏览左侧菜单查找信息。'
+  }
+
+  const aiMessage = {
+    id: `ai_${Date.now()}`,
+    content: answer,
+    isUser: false,
+    timestamp: Date.now(),
+    links: relatedLinks.length > 0 ? relatedLinks : undefined
+  }
+  messages.value.push(aiMessage)
+
+  // 生成建议问题
+  generateSuggestedQuestions(message, answer)
+
+  if (!isOpen.value) {
+    hasUnread.value = true
+  }
+
+  isLoading.value = false
+  scrollToBottom()
 }
 
 // 根据上下文生成建议问题

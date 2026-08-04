@@ -390,9 +390,9 @@ const toggleChat = async () => {
   }
 }
 
-// 频率限制：每分钟最多1次
+// 频率限制：每30秒最多1次
 const RATE_LIMIT_KEY = 'ai_chat_last_request'
-const RATE_LIMIT_SECONDS = 60
+const RATE_LIMIT_SECONDS = 30
 const cooldownLeft = ref(0)
 let cooldownTimer: ReturnType<typeof setInterval> | null = null
 

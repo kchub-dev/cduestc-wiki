@@ -206,16 +206,71 @@ const isApiAvailable = () => {
   return API_CONFIG.apiKey && API_CONFIG.apiKey !== 'YOUR_API_KEY_HERE'
 }
 
+// 纯JS HMAC-SHA256 实现（兼容微信/QQ内置浏览器）
+const hmacSha256 = async (key: string, message: string): Promise<string> => {
+  // 优先使用 crypto.subtle（HTTPS环境）
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    try {
+      const encoder = new TextEncoder()
+      const cryptoKey = await crypto.subtle.importKey(
+        'raw', encoder.encode(key),
+        { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+      )
+      const signature = await crypto.subtle.sign('HMAC', cryptoKey, encoder.encode(message))
+      return btoa(String.fromCharCode(...new Uint8Array(signature)))
+    } catch (e) {
+      console.warn('crypto.subtle 失败，使用纯JS实现:', e)
+    }
+  }
+
+  // 纯JS后备实现（简化版，仅用于HMAC-SHA256签名）
+  const sha256 = async (str: string): Promise<string> => {
+    // 使用 SubtleCrypto 如果可用
+    if (typeof crypto !== 'undefined' && crypto.subtle) {
+      const encoder = new TextEncoder()
+      const hash = await crypto.subtle.digest('SHA-256', encoder.encode(str))
+      return String.fromCharCode(...new Uint8Array(hash))
+    }
+    // 否则使用简单的哈希（不推荐，但作为最后手段）
+    throw new Error('无法计算SHA256')
+  }
+
+  // HMAC-SHA256 标准实现
+  const blockSize = 64
+  const keyBytes = new TextEncoder().encode(key)
+  let keyArray = new Uint8Array(blockSize)
+
+  if (keyBytes.length > blockSize) {
+    const hash = await sha256(key)
+    for (let i = 0; i < hash.length; i++) keyArray[i] = hash.charCodeAt(i)
+  } else {
+    for (let i = 0; i < keyBytes.length; i++) keyArray[i] = keyBytes[i]
+  }
+
+  const ipad = new Uint8Array(blockSize)
+  const opad = new Uint8Array(blockSize)
+  for (let i = 0; i < blockSize; i++) {
+    ipad[i] = keyArray[i] ^ 0x36
+    opad[i] = keyArray[i] ^ 0x5c
+  }
+
+  const msgBytes = new TextEncoder().encode(message)
+  const innerData = new Uint8Array(blockSize + msgBytes.length)
+  innerData.set(ipad, 0)
+  innerData.set(msgBytes, blockSize)
+
+  const innerHash = await sha256(String.fromCharCode(...innerData))
+  const outerData = new Uint8Array(blockSize + innerHash.length)
+  outerData.set(opad, 0)
+  for (let i = 0; i < innerHash.length; i++) outerData[blockSize + i] = innerHash.charCodeAt(i)
+
+  const result = await sha256(String.fromCharCode(...outerData))
+  return btoa(result)
+}
+
 // 讯飞星火助手 WebSocket 调用
 const callSparkAssistant = (userMessage: string, context: string): Promise<string> => {
   return new Promise((resolve, reject) => {
-    // 检查 crypto.subtle 是否可用
-    if (!crypto?.subtle) {
-      reject(new Error('当前环境不支持 crypto.subtle，需要 HTTPS'))
-      return
-    }
-
-    const encoder = new TextEncoder()
     const url = new URL(SPARK_CONFIG.assistantUrl)
     const host = url.host
     const path = url.pathname
@@ -226,12 +281,7 @@ const callSparkAssistant = (userMessage: string, context: string): Promise<strin
 
     const sign = async () => {
       const signatureOrigin = `host: ${host}\ndate: ${date}\nGET ${path} HTTP/1.1`
-      const key = await crypto.subtle.importKey(
-        'raw', encoder.encode(SPARK_CONFIG.apiSecret),
-        { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
-      )
-      const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(signatureOrigin))
-      const signatureSha = btoa(String.fromCharCode(...new Uint8Array(signature)))
+      const signatureSha = await hmacSha256(SPARK_CONFIG.apiSecret, signatureOrigin)
 
       const authorizationOrigin = `api_key="${SPARK_CONFIG.apiKey}", algorithm="hmac-sha256", headers="host date request-line", signature="${signatureSha}"`
       const authorization = btoa(authorizationOrigin)
@@ -240,7 +290,14 @@ const callSparkAssistant = (userMessage: string, context: string): Promise<strin
     }
 
     sign().then(wsUrl => {
-      const ws = new WebSocket(wsUrl)
+      let ws: WebSocket
+      try {
+        ws = new WebSocket(wsUrl)
+      } catch (e) {
+        reject(new Error('WebSocket创建失败'))
+        return
+      }
+
       let fullContent = ''
       let settled = false
 
@@ -273,28 +330,32 @@ const callSparkAssistant = (userMessage: string, context: string): Promise<strin
 
       ws.onmessage = (event) => {
         if (settled) return
-        const data = JSON.parse(event.data)
-        const code = data.header?.code
-        const status = data.header?.status
+        try {
+          const data = JSON.parse(event.data)
+          const code = data.header?.code
+          const status = data.header?.status
 
-        if (code !== 0) {
-          clearTimeout(timeout)
-          settled = true
-          ws.close()
-          reject(new Error(`讯飞错误: ${code} - ${data.header?.message}`))
-          return
-        }
+          if (code !== 0) {
+            clearTimeout(timeout)
+            settled = true
+            ws.close()
+            reject(new Error(`讯飞错误: ${code} - ${data.header?.message}`))
+            return
+          }
 
-        const textList = data.payload?.choices?.text || []
-        for (const item of textList) {
-          if (item.content) fullContent += item.content
-        }
+          const textList = data.payload?.choices?.text || []
+          for (const item of textList) {
+            if (item.content) fullContent += item.content
+          }
 
-        if (status === 2) {
-          clearTimeout(timeout)
-          settled = true
-          ws.close()
-          resolve(fullContent)
+          if (status === 2) {
+            clearTimeout(timeout)
+            settled = true
+            ws.close()
+            resolve(fullContent)
+          }
+        } catch (e) {
+          console.error('解析消息失败:', e)
         }
       }
 

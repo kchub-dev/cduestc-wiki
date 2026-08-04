@@ -209,16 +209,21 @@ const isApiAvailable = () => {
 // 讯飞星火助手 WebSocket 调用
 const callSparkAssistant = (userMessage: string, context: string): Promise<string> => {
   return new Promise((resolve, reject) => {
-    // 动态导入 crypto 库（浏览器端用 SubtleCrypto）
-    const encoder = new TextEncoder()
+    // 检查 crypto.subtle 是否可用
+    if (!crypto?.subtle) {
+      reject(new Error('当前环境不支持 crypto.subtle，需要 HTTPS'))
+      return
+    }
 
-    // 生成鉴权URL
+    const encoder = new TextEncoder()
     const url = new URL(SPARK_CONFIG.assistantUrl)
     const host = url.host
     const path = url.pathname
     const date = new Date().toUTCString()
 
-    // HMAC-SHA256 签名（浏览器端）
+    // 生成唯一用户ID，避免并发冲突
+    const uid = `wiki_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+
     const sign = async () => {
       const signatureOrigin = `host: ${host}\ndate: ${date}\nGET ${path} HTTP/1.1`
       const key = await crypto.subtle.importKey(
@@ -237,18 +242,24 @@ const callSparkAssistant = (userMessage: string, context: string): Promise<strin
     sign().then(wsUrl => {
       const ws = new WebSocket(wsUrl)
       let fullContent = ''
-      let timeout = setTimeout(() => {
-        ws.close()
-        reject(new Error('讯飞助手响应超时'))
-      }, 30000)
+      let settled = false
+
+      const timeout = setTimeout(() => {
+        if (!settled) {
+          settled = true
+          ws.close()
+          reject(new Error('讯飞助手响应超时'))
+        }
+      }, 25000)
 
       ws.onopen = () => {
+        console.log('讯飞WebSocket已连接')
         const prompt = context
           ? `参考资料：\n${context}\n\n用户问题：${userMessage}`
           : userMessage
 
         ws.send(JSON.stringify({
-          header: { app_id: SPARK_CONFIG.appId, uid: 'wiki_user' },
+          header: { app_id: SPARK_CONFIG.appId, uid },
           parameter: {
             chat: { domain: 'general', temperature: 0.5, max_tokens: 1024 }
           },
@@ -261,12 +272,14 @@ const callSparkAssistant = (userMessage: string, context: string): Promise<strin
       }
 
       ws.onmessage = (event) => {
+        if (settled) return
         const data = JSON.parse(event.data)
         const code = data.header?.code
         const status = data.header?.status
 
         if (code !== 0) {
           clearTimeout(timeout)
+          settled = true
           ws.close()
           reject(new Error(`讯飞错误: ${code} - ${data.header?.message}`))
           return
@@ -279,19 +292,27 @@ const callSparkAssistant = (userMessage: string, context: string): Promise<strin
 
         if (status === 2) {
           clearTimeout(timeout)
+          settled = true
           ws.close()
           resolve(fullContent)
         }
       }
 
-      ws.onerror = () => {
-        clearTimeout(timeout)
-        reject(new Error('讯飞WebSocket连接失败'))
+      ws.onerror = (err) => {
+        console.error('讯飞WebSocket错误:', err)
+        if (!settled) {
+          clearTimeout(timeout)
+          settled = true
+          reject(new Error('讯飞WebSocket连接失败'))
+        }
       }
 
       ws.onclose = () => {
-        clearTimeout(timeout)
-        if (!fullContent) reject(new Error('讯飞连接已关闭'))
+        if (!settled) {
+          clearTimeout(timeout)
+          settled = true
+          reject(new Error('讯飞连接已关闭'))
+        }
       }
     }).catch(reject)
   })

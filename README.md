@@ -63,7 +63,7 @@ VITE_SPARK_AUTH_URL=http://127.0.0.1:8787/spark/auth
 pnpm run dev:spark-auth
 ```
 
-签名服务仅监听 `127.0.0.1:8787`，并返回 `{ "url": "wss://...", "appId": "..." }`。API Key 和 API Secret 只保存在签名服务端，不能写入 `VITE_*` 变量或前端源码。生产部署时应把同一签名逻辑放入受保护的后端接口，并补充身份校验和限流。两个 Provider 的链路彼此独立；当前 Provider 失败时只降级到本地知识库，不会自动调用另一个 Provider。
+服务仅监听 `127.0.0.1:8787`，并通过短期会话地址代理讯飞 WebSocket。API Key、API Secret 和讯飞签名 URL 都只保留在代理服务端，不能写入 `VITE_*` 变量或前端源码。线上部署需要使用反向代理或 Cloudflare Tunnel 将 `/spark/auth` 和 `/spark/chat` 安全发布到 HTTPS/WSS 地址。两个 Provider 的链路彼此独立；当前 Provider 失败时只降级到本地知识库，不会自动调用另一个 Provider。
 
 ### 推送
 

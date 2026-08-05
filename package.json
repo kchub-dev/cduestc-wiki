@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "dev": "vitepress dev docs --host",
-    "build": "vitepress build docs",
+    "build": "vitepress build docs && node scripts/gen-sitemap.mjs",
     "preview": "vitepress preview docs",
     "lint": "eslint ."
   },

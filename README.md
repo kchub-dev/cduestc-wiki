@@ -38,6 +38,33 @@ pnpm i
 pnpm run dev
 ```
 
+### AI 助手配置
+
+复制 `.env.example` 中需要的配置到 `docs/.env.local`。AI 服务由站点维护者在构建或部署时选择，页面不会向访客提供切换入口或密钥设置。正式站默认使用 OpenAI 兼容模式：
+
+```sh
+VITE_AI_PROVIDER=openai
+VITE_OPENAI_PROXY_URL=https://example.com/api/ai/openai
+VITE_OPENAI_MODEL=step-3.5-flash
+```
+
+`VITE_OPENAI_PROXY_URL` 指向站点自己的后端代理。代理接收 OpenAI Chat Completions 格式的请求并返回兼容响应；上游 API Key、Base URL 等敏感配置必须只保存在后端环境中，不能写入 `VITE_*` 变量或前端源码。
+
+讯飞演示模式使用独立链路：
+
+```sh
+VITE_AI_PROVIDER=spark
+VITE_SPARK_AUTH_URL=http://127.0.0.1:8787/spark/auth
+```
+
+将 `server/.env.example` 复制为 Git 忽略的 `server/.env.local`，填写讯飞凭据和助手地址，再单独启动本地签名服务：
+
+```sh
+pnpm run dev:spark-auth
+```
+
+签名服务仅监听 `127.0.0.1:8787`，并返回 `{ "url": "wss://...", "appId": "..." }`。API Key 和 API Secret 只保存在签名服务端，不能写入 `VITE_*` 变量或前端源码。生产部署时应把同一签名逻辑放入受保护的后端接口，并补充身份校验和限流。两个 Provider 的链路彼此独立；当前 Provider 失败时只降级到本地知识库，不会自动调用另一个 Provider。
+
 ### 推送
 
 提交 Pull Request。

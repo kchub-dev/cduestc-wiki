@@ -3,12 +3,8 @@
   "type": "module",
   "version": "0.1.1",
   "private": true,
-  "dependencies": {
-    "ws": "^8.18.3"
-  },
   "scripts": {
     "dev": "vitepress dev docs --host",
-    "dev:spark-auth": "node scripts/spark-auth-server.mjs",
     "build": "vitepress build docs",
     "preview": "vitepress preview docs",
     "lint": "eslint ."

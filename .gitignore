@@ -4,3 +4,5 @@ docs/.vitepress/cache
 .env
 .env.local
 .env.*.local
+.dev.vars*
+.wrangler/

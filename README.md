@@ -54,16 +54,20 @@ VITE_OPENAI_MODEL=step-3.5-flash
 
 ```sh
 VITE_AI_PROVIDER=spark
-VITE_SPARK_AUTH_URL=http://127.0.0.1:8787/spark/auth
+VITE_SPARK_AUTH_URL=https://spark-api.kcos.club/spark/auth
 ```
 
-将 `server/.env.example` 复制为 Git 忽略的 `server/.env.local`，填写讯飞凭据和助手地址，再单独启动本地签名服务：
+讯飞 WebSocket 代理运行在 Cloudflare Workers，代码和路由配置分别位于 `workers/spark-proxy.js` 与 `wrangler.jsonc`。首次部署前通过 Wrangler 写入以下 Worker Secrets：
 
 ```sh
-pnpm run dev:spark-auth
+wrangler secret put SPARK_APP_ID
+wrangler secret put SPARK_API_KEY
+wrangler secret put SPARK_API_SECRET
+wrangler secret put SPARK_ASSISTANT_URL
+wrangler deploy --config wrangler.jsonc
 ```
 
-服务仅监听 `127.0.0.1:8787`，并通过短期会话地址代理讯飞 WebSocket。API Key、API Secret 和讯飞签名 URL 都只保留在代理服务端，不能写入 `VITE_*` 变量或前端源码。线上部署需要使用反向代理或 Cloudflare Tunnel 将 `/spark/auth` 和 `/spark/chat` 安全发布到 HTTPS/WSS 地址。两个 Provider 的链路彼此独立；当前 Provider 失败时只降级到本地知识库，不会自动调用另一个 Provider。
+Worker 通过 60 秒短期会话代理讯飞 WebSocket。API Key、API Secret 和讯飞签名 URL 都只保留在 Worker 内，不能写入 `VITE_*` 变量或前端源码。服务由 Cloudflare 常驻运行，不依赖开发者电脑或 Tunnel。两个 Provider 的链路彼此独立；当前 Provider 失败时只降级到本地知识库，不会自动调用另一个 Provider。
 
 ### 推送
 

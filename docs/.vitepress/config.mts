@@ -48,9 +48,9 @@ export default defineConfig({
     head: [
         ['link', { rel: 'icon', href: '/logo.svg' }],
         ['link', { rel: 'stylesheet', href: 'https://lib.baomitu.com/font-awesome/6.5.1/css/all.min.css', media: 'none', onload: 'media="all"' }],
-        // 51LA统计代码
+        // 51LA 统计代码（同步安装，置于 head 内；hashMode 适配 SPA，screenRecord 开启录屏）
         ['script', { charset: 'UTF-8', id: 'LA_COLLECT', src: '//sdk.51.la/js-sdk-pro.min.js' }],
-        ['script', {}, 'LA.init({id:"Kw98PvFvmUElbcK3",ck:"Kw98PvFvmUElbcK3",autoTrack:true})'],
+        ['script', {}, 'LA.init({id:"3QJPple08RRBVP8s",ck:"3QJPple08RRBVP8s",autoTrack:true,hashMode:true,screenRecord:true})'],
         // 搜索引擎站点验证（百度 / 搜狗 HTML 标签验证，全局注入即覆盖首页）
         ['meta', { name: 'baidu-site-verification', content: 'codeva-ReHfVWBMzI' }],
         ['meta', { name: 'sogou_site_verification', content: 'h0J1puJhZO' }],

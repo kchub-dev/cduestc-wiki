@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cduestc-spark-proxy",
+  "main": "workers/spark-proxy.js",
+  "compatibility_date": "2026-06-02",
+  "account_id": "7ef8aafe1079e9fe3f1ba233a2396454",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    {
+      "pattern": "spark-api.kcos.club",
+      "custom_domain": true
+    }
+  ],
+  "vars": {
+    "SPARK_ALLOWED_ORIGINS": "https://wiki.kcos.club,http://127.0.0.1:5175"
+  }
+}

@@ -21,7 +21,7 @@
           <div class="header-info">
             <Icon icon="ri:robot-2-fill" class="header-icon" />
             <div>
-              <div class="header-title">星辰-AI助手</div>
+              <div class="header-title">星辰AI助手</div>
               <div class="header-subtitle">基于校园知识库的AI助手</div>
             </div>
           </div>
@@ -166,6 +166,9 @@
 
 <script setup lang="ts">
 import { ref, nextTick, onMounted, onUnmounted, h, createVNode } from 'vue'
+import { searchKnowledge, selectRelatedSources } from '../ai/knowledge'
+import type { KnowledgeEntry } from '../ai/knowledge'
+import { activeAIProvider } from '../ai/provider'
 import Tip from './Tip.vue'
 
 // 状态管理
@@ -181,244 +184,14 @@ const messages = ref<Array<{
   links?: Array<{ title: string; url: string }>
 }>>([])
 const suggestedQuestions = ref<string[]>([])
+let requestController: AbortController | null = null
 
 // DOM引用
 const messagesContainer = ref<HTMLElement>()
 const textareaRef = ref<HTMLTextAreaElement>()
 
-// API配置 - 讯飞星火助手（优先）
-const SPARK_CONFIG = {
-  appId: 'df5b1bc2',
-  apiKey: '2cf0bf57b33b0747f5adb73a33adccaa',
-  apiSecret: 'M2RmZTM3YjQ0ZjI3NmM3NjQxN2QyMGYy',
-  assistantUrl: 'wss://spark-openapi.cn-huabei-1.xf-yun.com/v1/assistants/28hof4yktszs_v1'
-}
-
-// API配置 - OpenAI兼容接口（降级）
-const API_CONFIG = {
-  baseUrl: 'https://hub.linux.do/v1',
-  apiKey: 'ah-6299cbb81666be776eadb25506b0d7896f3ce2b1d358b9d4d044d844b982e99a',
-  model: 'step-3.5-flash'
-}
-
-// 检查 API 是否可用
-const isApiAvailable = () => {
-  return API_CONFIG.apiKey && API_CONFIG.apiKey !== 'YOUR_API_KEY_HERE'
-}
-
-// 纯JS SHA-256 实现（兼容所有浏览器，不依赖 crypto.subtle）
-const sha256Pure = (str: string): string => {
-  const K = [
-    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
-  ]
-
-  const encoder = new TextEncoder()
-  const data = encoder.encode(str)
-  const l = data.length * 8
-  const n = Math.ceil((l + 65) / 512)
-  const m = new Uint8Array(n * 64)
-  m.set(data)
-  m[data.length] = 0x80
-  m[n * 64 - 1] = l & 0xff
-  m[n * 64 - 2] = (l >>> 8) & 0xff
-  m[n * 64 - 3] = (l >>> 16) & 0xff
-  m[n * 64 - 4] = (l >>> 24) & 0xff
-
-  let h0 = 0x6a09e667, h1 = 0xbb67ae85, h2 = 0x3c6ef372, h3 = 0xa54ff53a
-  let h4 = 0x510e527f, h5 = 0x9b05688c, h6 = 0x1f83d9ab, h7 = 0x5be0cd19
-
-  const w = new Uint32Array(64)
-  for (let i = 0; i < n * 64; i += 64) {
-    for (let j = 0; j < 16; j++) {
-      w[j] = (m[i + j * 4] << 24) | (m[i + j * 4 + 1] << 16) | (m[i + j * 4 + 2] << 8) | m[i + j * 4 + 3]
-    }
-    for (let j = 16; j < 64; j++) {
-      const s0 = ((w[j - 15] >>> 7) | (w[j - 15] << 25)) ^ ((w[j - 15] >>> 18) | (w[j - 15] << 14)) ^ (w[j - 15] >>> 3)
-      const s1 = ((w[j - 2] >>> 17) | (w[j - 2] << 15)) ^ ((w[j - 2] >>> 19) | (w[j - 2] << 13)) ^ (w[j - 2] >>> 10)
-      w[j] = (w[j - 16] + s0 + w[j - 7] + s1) | 0
-    }
-    let a = h0, b = h1, c = h2, d = h3, e = h4, f = h5, g = h6, h = h7
-    for (let j = 0; j < 64; j++) {
-      const S1 = ((e >>> 6) | (e << 26)) ^ ((e >>> 11) | (e << 21)) ^ ((e >>> 25) | (e << 7))
-      const ch = (e & f) ^ (~e & g)
-      const t1 = (h + S1 + ch + K[j] + w[j]) | 0
-      const S0 = ((a >>> 2) | (a << 30)) ^ ((a >>> 13) | (a << 19)) ^ ((a >>> 22) | (a << 10))
-      const maj = (a & b) ^ (a & c) ^ (b & c)
-      const t2 = (S0 + maj) | 0
-      h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0
-    }
-    h0 = (h0 + a) | 0; h1 = (h1 + b) | 0; h2 = (h2 + c) | 0; h3 = (h3 + d) | 0
-    h4 = (h4 + e) | 0; h5 = (h5 + f) | 0; h6 = (h6 + g) | 0; h7 = (h7 + h) | 0
-  }
-
-  const result = new Uint8Array(32)
-  for (let i = 0; i < 4; i++) {
-    result[i] = (h0 >>> (24 - i * 8)) & 0xff
-    result[i + 4] = (h1 >>> (24 - i * 8)) & 0xff
-    result[i + 8] = (h2 >>> (24 - i * 8)) & 0xff
-    result[i + 12] = (h3 >>> (24 - i * 8)) & 0xff
-    result[i + 16] = (h4 >>> (24 - i * 8)) & 0xff
-    result[i + 20] = (h5 >>> (24 - i * 8)) & 0xff
-    result[i + 24] = (h6 >>> (24 - i * 8)) & 0xff
-    result[i + 28] = (h7 >>> (24 - i * 8)) & 0xff
-  }
-  return String.fromCharCode(...result)
-}
-
-// 纯JS HMAC-SHA256 实现（兼容微信/QQ内置浏览器，不依赖 crypto.subtle）
-const hmacSha256 = async (key: string, message: string): Promise<string> => {
-  const blockSize = 64
-  const keyBytes = new TextEncoder().encode(key)
-  let keyArray = new Uint8Array(blockSize)
-
-  if (keyBytes.length > blockSize) {
-    const hash = sha256Pure(key)
-    for (let i = 0; i < hash.length; i++) keyArray[i] = hash.charCodeAt(i)
-  } else {
-    for (let i = 0; i < keyBytes.length; i++) keyArray[i] = keyBytes[i]
-  }
-
-  const ipad = new Uint8Array(blockSize)
-  const opad = new Uint8Array(blockSize)
-  for (let i = 0; i < blockSize; i++) {
-    ipad[i] = keyArray[i] ^ 0x36
-    opad[i] = keyArray[i] ^ 0x5c
-  }
-
-  const msgBytes = new TextEncoder().encode(message)
-  const innerData = new Uint8Array(blockSize + msgBytes.length)
-  innerData.set(ipad, 0)
-  innerData.set(msgBytes, blockSize)
-
-  const innerHash = sha256Pure(String.fromCharCode(...innerData))
-  const outerData = new Uint8Array(blockSize + innerHash.length)
-  outerData.set(opad, 0)
-  for (let i = 0; i < innerHash.length; i++) outerData[blockSize + i] = innerHash.charCodeAt(i)
-
-  const result = sha256Pure(String.fromCharCode(...outerData))
-  return btoa(result)
-}
-
-// 讯飞星火助手 WebSocket 调用
-const callSparkAssistant = (userMessage: string, context: string): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const url = new URL(SPARK_CONFIG.assistantUrl)
-    const host = url.host
-    const path = url.pathname
-    const date = new Date().toUTCString()
-
-    // 生成唯一用户ID，避免并发冲突
-    const uid = `wiki_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-
-    const sign = async () => {
-      const signatureOrigin = `host: ${host}\ndate: ${date}\nGET ${path} HTTP/1.1`
-      const signatureSha = await hmacSha256(SPARK_CONFIG.apiSecret, signatureOrigin)
-
-      const authorizationOrigin = `api_key="${SPARK_CONFIG.apiKey}", algorithm="hmac-sha256", headers="host date request-line", signature="${signatureSha}"`
-      const authorization = btoa(authorizationOrigin)
-
-      return `${SPARK_CONFIG.assistantUrl}?authorization=${encodeURIComponent(authorization)}&date=${encodeURIComponent(date)}&host=${encodeURIComponent(host)}`
-    }
-
-    sign().then(wsUrl => {
-      let ws: WebSocket
-      try {
-        ws = new WebSocket(wsUrl)
-      } catch (e) {
-        reject(new Error('WebSocket创建失败'))
-        return
-      }
-
-      let fullContent = ''
-      let settled = false
-
-      const timeout = setTimeout(() => {
-        if (!settled) {
-          settled = true
-          ws.close()
-          reject(new Error('讯飞助手响应超时'))
-        }
-      }, 25000)
-
-      ws.onopen = () => {
-        console.log('讯飞WebSocket已连接')
-        const prompt = context
-          ? `参考资料：\n${context}\n\n用户问题：${userMessage}`
-          : userMessage
-
-        ws.send(JSON.stringify({
-          header: { app_id: SPARK_CONFIG.appId, uid },
-          parameter: {
-            chat: { domain: 'general', temperature: 0.5, max_tokens: 1024 }
-          },
-          payload: {
-            message: {
-              text: [{ role: 'user', content: prompt }]
-            }
-          }
-        }))
-      }
-
-      ws.onmessage = (event) => {
-        if (settled) return
-        try {
-          const data = JSON.parse(event.data)
-          const code = data.header?.code
-          const status = data.header?.status
-
-          if (code !== 0) {
-            clearTimeout(timeout)
-            settled = true
-            ws.close()
-            reject(new Error(`讯飞错误: ${code} - ${data.header?.message}`))
-            return
-          }
-
-          const textList = data.payload?.choices?.text || []
-          for (const item of textList) {
-            if (item.content) fullContent += item.content
-          }
-
-          if (status === 2) {
-            clearTimeout(timeout)
-            settled = true
-            ws.close()
-            resolve(fullContent)
-          }
-        } catch (e) {
-          console.error('解析消息失败:', e)
-        }
-      }
-
-      ws.onerror = (err) => {
-        console.error('讯飞WebSocket错误:', err)
-        if (!settled) {
-          clearTimeout(timeout)
-          settled = true
-          reject(new Error('讯飞WebSocket连接失败'))
-        }
-      }
-
-      ws.onclose = () => {
-        if (!settled) {
-          clearTimeout(timeout)
-          settled = true
-          reject(new Error('讯飞连接已关闭'))
-        }
-      }
-    }).catch(reject)
-  })
-}
-
 // 知识库
-const knowledgeBase = ref<Array<{ title: string; content: string; url: string }>>([])
+const knowledgeBase = ref<KnowledgeEntry[]>([])
 
 // 加载知识库
 const loadKnowledge = async () => {
@@ -430,58 +203,6 @@ const loadKnowledge = async () => {
     }
   } catch (e) {
     console.warn('知识库加载失败:', e)
-  }
-}
-
-// 关键词匹配检索知识库，返回匹配结果（含链接）
-interface KnowledgeResult {
-  content: string
-  links: Array<{ title: string; url: string }>
-}
-
-const searchKnowledge = (query: string): KnowledgeResult => {
-  if (!knowledgeBase.value.length) return { content: '', links: [] }
-  // 提取关键词：中文按2-4字切分，英文按空格切分
-  const cleanQuery = query.replace(/[？，。！、\s\.\?\!]/g, '')
-  const keywords: string[] = []
-  // 中文关键词：2-4字的子串
-  for (let len = 4; len >= 2; len--) {
-    for (let i = 0; i <= cleanQuery.length - len; i++) {
-      const sub = cleanQuery.substring(i, i + len)
-      if (/[一-龥]/.test(sub)) keywords.push(sub)
-    }
-  }
-  // 英文关键词
-  query.split(/\s+/).filter(k => k.length > 1 && /[\da-z]/i.test(k)).forEach(k => keywords.push(k.toLowerCase()))
-  if (!keywords.length) return { content: '', links: [] }
-
-  const scored = knowledgeBase.value.map(item => {
-    let score = 0
-    const lowerContent = item.content.toLowerCase()
-    const lowerTitle = item.title.toLowerCase()
-    keywords.forEach(kw => {
-      const lower = kw.toLowerCase()
-      if (lowerContent.includes(lower)) score += 1
-      if (lowerTitle.includes(lower)) score += 2
-    })
-    return { ...item, score }
-  }).filter(item => item.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 3)
-
-  // 去重链接
-  const seen = new Set<string>()
-  const links = scored
-    .filter(item => {
-      if (seen.has(item.url)) return false
-      seen.add(item.url)
-      return true
-    })
-    .map(item => ({ title: item.title, url: item.url }))
-
-  return {
-    content: scored.map(item => `【${item.title}】${item.content}`).join('\n\n'),
-    links
   }
 }
 
@@ -580,8 +301,7 @@ const sendMessage = async () => {
   const message = currentInput.value.trim()
   if (!message || isLoading.value) return
 
-  // 频率限制检查（仅在有API时限制）
-  if (isApiAvailable() && !checkRateLimit()) {
+  if (!checkRateLimit()) {
     messages.value.push({
       id: `rate_${Date.now()}`,
       content: `⏳ 操作过于频繁，请等待 ${cooldownLeft.value} 秒后再试。`,
@@ -591,6 +311,14 @@ const sendMessage = async () => {
     scrollToBottom()
     return
   }
+
+  const history = messages.value
+    .filter(item => item.id.startsWith('user_') || item.id.startsWith('ai_'))
+    .slice(-6)
+    .map(item => ({
+      role: item.isUser ? 'user' as const : 'assistant' as const,
+      content: item.content
+    }))
 
   // 添加用户消息
   const userMessage = {
@@ -608,87 +336,43 @@ const sendMessage = async () => {
   isLoading.value = true
 
   // 先检索知识库，获取相关链接
-  const knowledge = searchKnowledge(message)
-  const context = knowledge.content
-  const relatedLinks = knowledge.links
+  const sources = searchKnowledge(knowledgeBase.value, message)
 
-  // 如果 API 不可用，直接降级为纯推荐模式
-  if (!isApiAvailable()) {
-    const hasLinks = relatedLinks.length > 0
-    const content = hasLinks
-      ? '🔍 当前没有AI模型介入，以下是根据您的问题为您找到的相关页面：'
-      : '🔍 当前没有AI模型介入，知识库中暂未找到相关页面。\n\n您可以尝试换个关键词，或直接浏览左侧菜单查找信息。'
-
-    const aiMessage = {
-      id: `ai_${Date.now()}`,
-      content,
-      isUser: false,
-      timestamp: Date.now(),
-      links: hasLinks ? relatedLinks : undefined
-    }
-    messages.value.push(aiMessage)
-    isLoading.value = false
-    scrollToBottom()
-    return
-  }
-
-  // 三级降级：讯飞助手 → OpenAI → 纯推荐
   let answer = ''
+  let citedSourceIds: string[] = []
+  if (activeAIProvider.isConfigured()) {
+    requestController = new AbortController()
 
-  // 第一级：尝试讯飞星火助手
-  try {
-    console.log('尝试讯飞星火助手...')
-    answer = await callSparkAssistant(message, context)
-    console.log('讯飞助手调用成功')
-    recordRequest()
-  } catch (sparkError) {
-    console.warn('讯飞助手失败，尝试OpenAI:', sparkError)
-
-    // 第二级：尝试 OpenAI 兼容接口
-    if (isApiAvailable()) {
-      try {
-        const systemPrompt = `你是"星辰AI助手"，电子科技大学成都学院（科成）的校园问答助手。请基于提供的参考资料回答用户问题。如果参考资料中没有相关内容，请如实说明并给出通用建议。回答要简洁、友好、实用。`
-
-        const userPrompt = context
-          ? `参考资料：\n${context}\n\n用户问题：${message}`
-          : message
-
-        const response = await fetch(`${API_CONFIG.baseUrl}/chat/completions`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${API_CONFIG.apiKey}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            model: API_CONFIG.model,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              ...messages.value.slice(-6).map(m => ({
-                role: m.isUser ? 'user' as const : 'assistant' as const,
-                content: m.content
-              })),
-              { role: 'user', content: userPrompt }
-            ],
-            temperature: 0.7,
-            max_tokens: 1024
-          })
-        })
-
-        if (response.ok) {
-          const data = await response.json()
-          answer = data.choices?.[0]?.message?.content || ''
-          recordRequest()
-          console.log('OpenAI调用成功')
-        } else {
-          console.warn('OpenAI响应错误:', response.status)
-        }
-      } catch (openaiError) {
-        console.warn('OpenAI调用失败:', openaiError)
-      }
+    try {
+      const response = await activeAIProvider.chat({
+        message,
+        sources,
+        history,
+        signal: requestController.signal
+      })
+      answer = response.content
+      citedSourceIds = response.citedSourceIds
+      recordRequest()
+    } catch (error) {
+      console.warn(`${activeAIProvider.label}调用失败:`, error)
+    } finally {
+      requestController = null
     }
   }
 
-  // 第三级：降级为纯推荐模式
+  const providerAnswered = Boolean(answer)
+  const relatedSources = selectRelatedSources(
+    sources,
+    providerAnswered ? citedSourceIds : [],
+    message,
+    providerAnswered ? answer : message
+  )
+  const relatedLinks = relatedSources.map(source => ({
+    title: source.title,
+    url: source.url
+  }))
+
+  // 当前 Provider 失败后只降级到本地知识库，不跨供应商调用。
   if (!answer) {
     const hasLinks = relatedLinks.length > 0
     answer = hasLinks
@@ -697,7 +381,7 @@ const sendMessage = async () => {
   }
 
   const aiMessage = {
-    id: `ai_${Date.now()}`,
+    id: `${providerAnswered ? 'ai' : 'fallback'}_${Date.now()}`,
     content: answer,
     isUser: false,
     timestamp: Date.now(),
@@ -750,9 +434,22 @@ const scrollToBottom = () => {
   })
 }
 
+const escapeHtml = (content: string) => content.replace(/[&<>"']/g, (character) => {
+  const entities: Record<string, string> = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }
+  return entities[character]
+})
+
+const isSafeLink = (url: string) => /^(https?:\/\/|mailto:|\/(?!\/)|\.{1,2}\/|#)/i.test(url)
+
 // 格式化消息内容 - 增强的Markdown支持
 const formatMessage = (content: string) => {
-  let result = content
+  let result = escapeHtml(content)
   
   // 先处理代码块，避免代码块内的内容被错误格式化
   const codeBlocks: string[] = []
@@ -811,7 +508,10 @@ const formatMessage = (content: string) => {
   // 其他格式化
   result = result
     // 链接格式 [文本](链接)
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label, url) => {
+      if (!isSafeLink(url)) return label
+      return `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`
+    })
     
     // 删除线
     .replace(/~~(.*?)~~/g, '<del>$1</del>')
@@ -904,6 +604,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  requestController?.abort()
+  if (cooldownTimer) clearInterval(cooldownTimer)
   document.removeEventListener('click', handleClickOutside)
 })
 </script>

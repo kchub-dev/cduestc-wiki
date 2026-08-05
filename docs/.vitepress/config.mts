@@ -9,7 +9,7 @@ export default defineConfig({
     description: '电子科技大学成都学院第三方公益校园生活百科',
     lastUpdated: true,
     cleanUrls: true,
-    base: '/cduestc-wiki/',
+    base: '/',
 
     themeConfig: {
         // https://vitepress.dev/zh/reference/default-theme-config
@@ -48,9 +48,22 @@ export default defineConfig({
     head: [
         ['link', { rel: 'icon', href: '/logo.svg' }],
         ['link', { rel: 'stylesheet', href: 'https://lib.baomitu.com/font-awesome/6.5.1/css/all.min.css', media: 'none', onload: 'media="all"' }],
-        // 51LA统计代码
+        // 51LA 统计代码（同步安装，置于 head 内；hashMode 适配 SPA，screenRecord 开启录屏）
         ['script', { charset: 'UTF-8', id: 'LA_COLLECT', src: '//sdk.51.la/js-sdk-pro.min.js' }],
-        ['script', {}, 'LA.init({id:"Kw98PvFvmUElbcK3",ck:"Kw98PvFvmUElbcK3",autoTrack:true})'],
+        ['script', {}, 'LA.init({id:"3QJPple08RRBVP8s",ck:"3QJPple08RRBVP8s",autoTrack:true,hashMode:true,screenRecord:true})'],
+        // 搜索引擎站点验证（百度 / 搜狗 HTML 标签验证，全局注入即覆盖首页）
+        ['meta', { name: 'baidu-site-verification', content: 'codeva-ReHfVWBMzI' }],
+        ['meta', { name: 'sogou_site_verification', content: 'h0J1puJhZO' }],
+        // 社交分享卡片（微信/QQ 等抓取时显示）
+        ['meta', { property: 'og:type', content: 'website' }],
+        ['meta', { property: 'og:site_name', content: '科成星球' }],
+        ['meta', { property: 'og:title', content: '科成星球 | 电子科技大学成都学院校园生活百科' }],
+        ['meta', { property: 'og:description', content: '电子科技大学成都学院第三方公益校园生活百科' }],
+        ['meta', { property: 'og:image', content: 'https://wiki.kcos.club/og-image.png' }],
+        ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
+        ['meta', { name: 'twitter:title', content: '科成星球 | 电子科技大学成都学院校园生活百科' }],
+        ['meta', { name: 'twitter:description', content: '电子科技大学成都学院第三方公益校园生活百科' }],
+        ['meta', { name: 'twitter:image', content: 'https://wiki.kcos.club/og-image.png' }],
     ],
     markdown: {
         math: true,
@@ -87,7 +100,7 @@ function nav(): DefaultTheme.NavItem[] {
             text: '关于',
             items: [
                 { text: '友情链接', link: '/links' },
-                { text: '贡献指南', link: '/contributing    ' },
+                { text: '贡献指南', link: '/contributing' },
                 { text: '更新日志', link: '/changelog' },
                 { text: '关于我们', link: '/about' },
             ],

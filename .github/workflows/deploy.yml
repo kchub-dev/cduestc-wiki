@@ -35,6 +35,9 @@ jobs:
         run: pnpm install
 
       - name: Build
+        env:
+          VITE_AI_PROVIDER: ${{ vars.VITE_AI_PROVIDER }}
+          VITE_SPARK_AUTH_URL: ${{ vars.VITE_SPARK_AUTH_URL }}
         run: pnpm build
 
       - name: Setup Pages

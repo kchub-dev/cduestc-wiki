@@ -4,10 +4,17 @@
   "version": "0.1.1",
   "private": true,
   "scripts": {
+    "predev": "python3 scripts/gen-knowledge.py",
+    "prebuild": "python3 scripts/gen-knowledge.py && node scripts/scan-content.mjs",
     "dev": "vitepress dev docs --host",
     "build": "vitepress build docs && node scripts/gen-sitemap.mjs",
+    "postbuild": "node scripts/verify-knowledge.mjs",
     "preview": "vitepress preview docs",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "eval:retrieval": "tsx scripts/evaluate-retrieval.ts",
+    "test:ai-security": "tsx scripts/test-ai-security.ts",
+    "scan:content": "node scripts/scan-content.mjs",
+    "test:worker": "node scripts/test-worker.mjs"
   },
   "devDependencies": {
     "@antfu/eslint-config": "^4.8.1",
@@ -17,17 +24,20 @@
     "@zinkawaii/stylelint-config": "^0.3.0",
     "eslint": "^9.22.0",
     "markdown-it-mathjax3": "^4.3.2",
+    "pagefind": "1.5.2",
     "pinia": "^3.0.1",
     "qrcode": "^1.5.4",
     "stylelint": "^16.15.0",
+    "tippy.js": "6.3.7",
+    "tsx": "^4.23.9",
     "vitepress": "^1.6.3",
     "vitepress-plugin-pagefind": "^0.4.14",
     "vue": "^3.5.13",
-    "vue-tippy": "^6.6.0"
+    "vue-tippy": "^6.6.0",
+    "wrangler": "4.95.0"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
+  "dependencies": {
+    "dompurify": "^3.4.13",
+    "markdown-it": "^15.0.0"
   }
 }

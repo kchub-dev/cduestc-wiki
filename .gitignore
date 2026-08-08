@@ -1,8 +1,15 @@
 node_modules/
+__pycache__/
 docs/.vitepress/dist
 docs/.vitepress/cache
+docs/public/knowledge.[0-9a-f]*.json
+docs/public/knowledge.*.[0-9a-f]*.json
 .env
 .env.local
 .env.*.local
 .dev.vars*
 .wrangler/
+
+# 本地工具临时产物
+.playwright-cli/
+.workbuddy/

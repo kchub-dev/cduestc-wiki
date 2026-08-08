@@ -12,9 +12,47 @@ async function parseErrorMessage(response: Response) {
     }
 }
 
+async function readStream(response: Response, onToken?: (content: string) => void) {
+    if (!response.body)
+        throw new Error('模型没有返回可读取的响应流')
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let content = ''
+    let done = false
+    while (!done) {
+        const chunk = await reader.read()
+        buffer += decoder.decode(chunk.value || new Uint8Array(), { stream: !chunk.done })
+        const lines = buffer.split(/\r?\n/)
+        buffer = lines.pop() || ''
+        for (const line of lines) {
+            if (!line.startsWith('data:'))
+                continue
+            const data = line.slice(5).trim()
+            if (data === '[DONE]') {
+                done = true
+                break
+            }
+            try {
+                const token = JSON.parse(data).choices?.[0]?.delta?.content
+                if (typeof token === 'string' && token) {
+                    content += token
+                    onToken?.(token)
+                }
+            }
+            catch {
+                // Ignore keepalive/comment frames and malformed partial events.
+            }
+        }
+        done ||= chunk.done
+    }
+    return content
+}
+
 export const openAIProvider: AIProvider = {
     id: 'openai',
-    label: 'OpenAI 兼容模式',
+    label: '校园 AI 网关',
     isConfigured: () => Boolean(OPENAI_CONFIG.proxyUrl),
     async chat(request: AIChatRequest) {
         if (!this.isConfigured())
@@ -38,8 +76,9 @@ export const openAIProvider: AIProvider = {
                         ...request.history,
                         { role: 'user', content: buildGroundedUserPrompt(request.message, request.sources) },
                     ],
-                    temperature: 0.7,
+                    temperature: 0.2,
                     max_tokens: 1024,
+                    stream: true,
                 }),
                 signal: controller.signal,
             })
@@ -47,8 +86,10 @@ export const openAIProvider: AIProvider = {
             if (!response.ok)
                 throw new Error(await parseErrorMessage(response))
 
-            const data = await response.json()
-            const content = data.choices?.[0]?.message?.content?.trim()
+            const contentType = response.headers.get('Content-Type') || ''
+            const content = contentType.includes('text/event-stream')
+                ? (await readStream(response, request.onToken)).trim()
+                : (await response.json()).choices?.[0]?.message?.content?.trim()
             if (!content)
                 throw new Error('模型没有返回有效内容')
 

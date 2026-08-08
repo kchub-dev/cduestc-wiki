@@ -49,8 +49,10 @@
                   :key="question"
                   @click="sendQuickQuestion(question)"
                   class="quick-btn"
+                  type="button"
                 >
-                  {{ question }}
+                  <span>{{ question }}</span>
+                  <Icon icon="ri:arrow-right-line" class="question-arrow" aria-hidden="true" />
                 </button>
               </div>
             </div>
@@ -71,10 +73,13 @@
             </div>
             <div class="message-content">
               <div
+                v-if="message.isUser"
                 class="message-text"
-                :class="{ 'vp-doc': !message.isUser }"
+              >{{ message.content }}</div>
+              <div
+                v-else
+                class="message-text vp-doc"
                 v-html="formatMessage(message.content)"
-                @click="handleMessageClick"
               ></div>
               <!-- 相关页面链接 -->
               <div v-if="!message.isUser && message.links && message.links.length > 0" class="message-links">
@@ -97,6 +102,43 @@
                 </div>
               </div>
               <div class="message-time">{{ formatTime(message.timestamp) }}</div>
+              <div v-if="!message.isUser" class="message-feedback">
+                <button
+                  :class="{ active: message.feedback === 'up', liking: message.feedbackState === 'liking' }"
+                  aria-label="有帮助"
+                  @click="rateMessage(message, 'up')"
+                  v-tip="'有帮助'"
+                >
+                  <Icon icon="ri:thumb-up-line" />
+                </button>
+                <button
+                  :class="{
+                    active: message.feedback === 'down',
+                    'dislike-warn': message.feedbackState === 'dislike-warn',
+                    'dislike-confirmed': message.feedbackState === 'dislike-confirmed',
+                  }"
+                  aria-label="没帮助"
+                  @click="rateMessage(message, 'down')"
+                  v-tip="'没帮助'"
+                >
+                  <Icon icon="ri:thumb-down-line" />
+                </button>
+                <!-- 反馈浮层：气泡文案与星星粒子，绝对定位于反馈区上方 -->
+                <div
+                  v-if="message.feedbackState && message.feedbackState !== 'idle'"
+                  class="feedback-overlay"
+                  :class="message.feedbackState"
+                >
+                  <span class="feedback-bubble">
+                    {{ feedbackBubbles.get(message.id) }}
+                    <i v-if="message.feedbackState === 'dislike-warn'" class="kaomoji">(；ω；)</i>
+                    <i v-else-if="message.feedbackState === 'dislike-confirmed'" class="kaomoji">(´；ω；)`</i>
+                  </span>
+                  <span v-if="message.feedbackState === 'liking'" class="feedback-stars" aria-hidden="true">
+                    <i v-for="n in 6" :key="n" class="star">★</i>
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -121,13 +163,15 @@
               您可能还想问：
             </div>
             <div class="suggested-list">
-              <button 
-                v-for="question in suggestedQuestions.slice(0, 3)" 
+              <button
+                v-for="question in suggestedQuestions.slice(0, 3)"
                 :key="question"
                 @click="sendQuickQuestion(question)"
                 class="suggested-btn"
+                type="button"
               >
-                {{ question }}
+                <span>{{ question }}</span>
+                <Icon icon="ri:arrow-right-line" class="question-arrow" aria-hidden="true" />
               </button>
             </div>
           </div>
@@ -165,24 +209,31 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted, onUnmounted, h, createVNode } from 'vue'
-import { searchKnowledge, selectRelatedSources } from '../ai/knowledge'
-import type { KnowledgeEntry } from '../ai/knowledge'
+import { ref, nextTick, onMounted, onUnmounted } from 'vue'
+import DOMPurify from 'dompurify'
+import MarkdownIt from 'markdown-it'
+import { rewriteRetrievalQuery, searchKnowledge, selectRelatedSources } from '../ai/knowledge'
+import type { KnowledgeEntry, SemanticIndex } from '../ai/knowledge'
 import { activeAIProvider } from '../ai/provider'
-import Tip from './Tip.vue'
+import { OPENAI_CONFIG } from '../ai/config'
+import { redactTelemetryQuery, sanitizeUserInput } from '../ai/security'
 
 // 状态管理
 const isOpen = ref(false)
 const currentInput = ref('')
 const isLoading = ref(false)
 const hasUnread = ref(false)
-const messages = ref<Array<{
+type ChatMessage = {
   id: string
   content: string
   isUser: boolean
   timestamp: number
   links?: Array<{ title: string; url: string }>
-}>>([])
+  feedback?: 'up' | 'down' | null
+  // 反馈动效状态：赞动画中 / 首次踩求饶中 / 二次踩已生效
+  feedbackState?: 'idle' | 'liking' | 'dislike-warn' | 'dislike-confirmed'
+}
+const messages = ref<ChatMessage[]>([])
 const suggestedQuestions = ref<string[]>([])
 let requestController: AbortController | null = null
 
@@ -192,27 +243,120 @@ const textareaRef = ref<HTMLTextAreaElement>()
 
 // 知识库
 const knowledgeBase = ref<KnowledgeEntry[]>([])
+const knowledgeStatus = ref<'idle' | 'loading' | 'ready' | 'empty' | 'error'>('idle')
+let knowledgeLoadPromise: Promise<void> | null = null
+let knowledgeManifestPromise: Promise<{ version?: string; file?: string; shards?: Record<string, string>; semantic?: SemanticIndex }> | null = null
+const loadedKnowledgeShards = new Set<string>()
+const knowledgeSemanticIndex = ref<SemanticIndex>()
+
+// 分片按文档 URL 首段划分（见 gen-knowledge.py），而按查询关键词做路由是另一套
+// 独立逻辑，两者必然错配。实测 50 条评测集：全量 Recall@4=0.92，关键词路由仅 0.88，
+// 且「校园网怎么连接」（目标页 /study/network）这类高频问题会稳定漏召。
+// 因此首次提问一律并行加载全部分片：总字节与全量一致（gzip 后约 50-60KB），
+// 内容哈希版本化与并行请求的收益仍然保留，但不再有路由漏召。
+const getKnowledgeShardKeys = (shardMap: Record<string, string>) => Object.keys(shardMap)
 
 // 加载知识库
 const loadKnowledge = async () => {
-  try {
-    const res = await fetch('/knowledge.json')
-    if (res.ok) {
-      knowledgeBase.value = await res.json()
+  if (knowledgeLoadPromise)
+    return knowledgeLoadPromise
+
+  knowledgeStatus.value = 'loading'
+  knowledgeLoadPromise = (async () => {
+    try {
+      knowledgeManifestPromise ||= fetch('/knowledge-manifest.json', { cache: 'no-store' })
+        .then(async response => {
+          if (!response.ok)
+            throw new Error(`HTTP ${response.status}`)
+          return response.json()
+        })
+      const manifest = await knowledgeManifestPromise
+      knowledgeSemanticIndex.value = manifest.semantic
+      const shardMap = manifest.shards && typeof manifest.shards === 'object'
+        ? manifest.shards
+        : { all: manifest.file || 'knowledge.json' }
+      const requestedKeys = Object.keys(manifest.shards || {}).length
+        ? getKnowledgeShardKeys(shardMap)
+        : ['all']
+      const files = requestedKeys
+        .map(key => [key, shardMap[key]] as const)
+        .filter((entry): entry is readonly [string, string] => typeof entry[1] === 'string')
+        .filter(([key]) => !loadedKnowledgeShards.has(key))
+
+      const responses = await Promise.all(files.map(async ([key, file]) => {
+        const response = await fetch(`/${file}?v=${encodeURIComponent(manifest.version || '')}`, { cache: 'force-cache' })
+        if (!response.ok)
+          throw new Error(`HTTP ${response.status}`)
+        const data = await response.json()
+        if (!Array.isArray(data))
+          throw new Error('知识库格式无效')
+        loadedKnowledgeShards.add(key)
+        return data as KnowledgeEntry[]
+      }))
+      knowledgeBase.value = [...knowledgeBase.value, ...responses.flat()]
+      knowledgeStatus.value = knowledgeBase.value.length ? 'ready' : 'empty'
       console.log(`知识库加载完成: ${knowledgeBase.value.length} 条`)
     }
-  } catch (e) {
-    console.warn('知识库加载失败:', e)
-  }
+    catch (e) {
+      knowledgeStatus.value = 'error'
+      console.warn('知识库加载失败:', e)
+    }
+    finally {
+      knowledgeLoadPromise = null
+    }
+  })()
+
+  await knowledgeLoadPromise
 }
 
-// 快速问题
-const quickQuestions = [
+const allQuestions = [
   '宿舍条件怎么样？',
   '有哪些实验室可以加入？',
   '食堂好吃吗？',
-  '如何选课？'
+  '如何选课？',
+  '怎么加入社团？',
+  '军训要准备什么？',
+  '校园网怎么连？',
+  '快递怎么取？',
+  '新生防骗指南',
+  '图书馆开放时间？',
+  '实验室招新条件？',
+  '宿舍几点熄灯？',
+  '选课系统打不开怎么办？',
+  '社团活动多吗？',
+  '宽带怎么装？',
+  '食堂价格怎么样？',
+  '宿舍有空调吗？',
+  '实验室几点开始？',
 ]
+
+const usedQuestions = new Set<string>()
+
+const shuffle = (array: string[]): string[] => {
+  const shuffled = [...array]
+  for (let index = shuffled.length - 1; index > 0; index--) {
+    const randomIndex = Math.floor(Math.random() * (index + 1))
+    const selected = shuffled[index]
+    shuffled[index] = shuffled[randomIndex]
+    shuffled[randomIndex] = selected
+  }
+  return shuffled
+}
+
+const getRandomQuestions = (count = 4): string[] => {
+  let available = allQuestions.filter(question => !usedQuestions.has(question))
+  if (available.length < count) {
+    usedQuestions.clear()
+    available = allQuestions
+  }
+  const selected = shuffle(available).slice(0, count)
+  selected.forEach(question => usedQuestions.add(question))
+  return selected
+}
+
+// Keep SSR and the first client render identical; randomize after mount.
+const quickQuestions = ref(allQuestions.slice(0, 4))
+
 
 // 切换聊天窗口
 const toggleChat = async () => {
@@ -253,6 +397,69 @@ const recordRequest = () => {
   startCooldownTimer()
 }
 
+const sendTelemetry = (event: string, payload: Record<string, number | string> = {}) => {
+  if (!OPENAI_CONFIG.telemetryUrl)
+    return
+
+  void fetch(OPENAI_CONFIG.telemetryUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ event, provider: activeAIProvider.id, ...payload }),
+    keepalive: true,
+  }).catch(() => {})
+}
+
+// 反馈气泡文案池
+const LIKE_BUBBLES = ['感谢喵～', '谢谢你喵', '收到鼓励喵']
+const DISLIKE_WARN_BUBBLES = ['求求别点差评喵…', '再给我一次机会喵', '我会努力变好的喵']
+const DISLIKE_CONFIRM_BUBBLE = '好吧…我记下了喵'
+
+// 已被「求饶」拦截过一次的消息（弱引用，随消息销毁自动回收）
+const dislikeWarned = new WeakSet<ChatMessage>()
+// 每条消息当前的气泡文案与归位定时器
+const feedbackBubbles = new Map<string, string>()
+const feedbackTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+const pickRandom = (list: string[]) => list[Math.floor(Math.random() * list.length)]
+
+// 延时归位：动画结束后回到 idle，重复触发时先清掉旧定时器
+const resetFeedbackState = (message: ChatMessage, expected: NonNullable<ChatMessage['feedbackState']>, delay: number) => {
+  const oldTimer = feedbackTimers.get(message.id)
+  if (oldTimer) clearTimeout(oldTimer)
+  feedbackTimers.set(message.id, setTimeout(() => {
+    if (message.feedbackState === expected)
+      message.feedbackState = 'idle'
+    feedbackTimers.delete(message.id)
+  }, delay))
+}
+
+const rateMessage = (message: ChatMessage, rating: 'up' | 'down') => {
+  if (rating === 'up') {
+    // 赞仅做 UI 反馈，不上报 telemetry
+    message.feedback = 'up'
+    message.feedbackState = 'liking'
+    feedbackBubbles.set(message.id, pickRandom(LIKE_BUBBLES))
+    resetFeedbackState(message, 'liking', 1200)
+    return
+  }
+  // 踩已生效后不再响应
+  if (message.feedbackState === 'dislike-confirmed') return
+  // 首次踩：不修改 feedback、不上报，仅抖动求饶
+  if (!dislikeWarned.has(message) && message.feedbackState !== 'dislike-warn') {
+    message.feedbackState = 'dislike-warn'
+    feedbackBubbles.set(message.id, pickRandom(DISLIKE_WARN_BUBBLES))
+    dislikeWarned.add(message)
+    resetFeedbackState(message, 'dislike-warn', 1800)
+    return
+  }
+  // 二次踩：确认生效，仅此刻上报一次
+  message.feedback = 'down'
+  message.feedbackState = 'dislike-confirmed'
+  feedbackBubbles.set(message.id, DISLIKE_CONFIRM_BUBBLE)
+  sendTelemetry('feedback', { rating: -1 })
+  resetFeedbackState(message, 'dislike-confirmed', 1200)
+}
+
 const startCooldownTimer = () => {
   if (cooldownTimer) clearInterval(cooldownTimer)
   cooldownTimer = setInterval(() => {
@@ -268,6 +475,10 @@ const startCooldownTimer = () => {
 const clearHistory = () => {
   messages.value = []
   suggestedQuestions.value = []
+  // 反馈状态随消息一并清空（WeakSet 无需手动清理）
+  feedbackTimers.forEach(timer => clearTimeout(timer))
+  feedbackTimers.clear()
+  feedbackBubbles.clear()
 }
 
 // 发送快速问题
@@ -298,8 +509,22 @@ const adjustTextareaHeight = () => {
 
 // 发送消息
 const sendMessage = async () => {
-  const message = currentInput.value.trim()
+  const sanitizedInput = sanitizeUserInput(currentInput.value)
+  const message = sanitizedInput.text
   if (!message || isLoading.value) return
+
+  if (sanitizedInput.blocked) {
+    currentInput.value = ''
+    messages.value.push({
+      id: `blocked_${Date.now()}`,
+      content: '这个问题包含不适合作为知识库问答指令的内容，请改用具体的校园问题提问。',
+      isUser: false,
+      timestamp: Date.now(),
+    })
+    sendTelemetry('input_blocked', { queryPreview: redactTelemetryQuery(message) })
+    scrollToBottom()
+    return
+  }
 
   if (!checkRateLimit()) {
     messages.value.push({
@@ -334,9 +559,18 @@ const sendMessage = async () => {
   adjustTextareaHeight()
   scrollToBottom()
   isLoading.value = true
+  const requestStartedAt = Date.now()
+
+  const previousQueries = history
+    .filter(item => item.role === 'user')
+    .map(item => item.content)
+  const retrievalQuery = rewriteRetrievalQuery(message, previousQueries)
+  await loadKnowledge()
 
   // 先检索知识库，获取相关链接
-  const sources = searchKnowledge(knowledgeBase.value, message)
+  const sources = searchKnowledge(knowledgeBase.value, retrievalQuery, knowledgeSemanticIndex.value)
+  if (!sources.length)
+    sendTelemetry('search_zero', { queryPreview: redactTelemetryQuery(retrievalQuery) })
 
   let answer = ''
   let citedSourceIds: string[] = []
@@ -348,7 +582,7 @@ const sendMessage = async () => {
         message,
         sources,
         history,
-        signal: requestController.signal
+        signal: requestController.signal,
       })
       answer = response.content
       citedSourceIds = response.citedSourceIds
@@ -361,33 +595,38 @@ const sendMessage = async () => {
   }
 
   const providerAnswered = Boolean(answer)
+  sendTelemetry(providerAnswered ? 'answer' : 'fallback', {
+    sourceCount: sources.length,
+    topScore: sources[0]?.relevanceScore || 0,
+    citedCount: citedSourceIds.length,
+    latencyMs: Date.now() - requestStartedAt,
+  })
   const relatedSources = selectRelatedSources(
     sources,
     providerAnswered ? citedSourceIds : [],
-    message,
-    providerAnswered ? answer : message
   )
   const relatedLinks = relatedSources.map(source => ({
     title: source.title,
     url: source.url
   }))
 
-  // 当前 Provider 失败后只降级到本地知识库，不跨供应商调用。
+  // Provider 失败后降级到本地知识库，不伪造模型答案。
   if (!answer) {
     const hasLinks = relatedLinks.length > 0
-    answer = hasLinks
+    answer = knowledgeStatus.value === 'error'
+      ? '🔍 知识库暂时无法加载，请稍后重试。'
+      : hasLinks
       ? '🔍 当前AI服务暂不可用，以下是根据您的问题为您找到的相关页面：'
       : '🔍 当前AI服务暂不可用，知识库中暂未找到相关页面。\n\n您可以尝试换个关键词，或直接浏览左侧菜单查找信息。'
   }
 
-  const aiMessage = {
+  messages.value.push({
     id: `${providerAnswered ? 'ai' : 'fallback'}_${Date.now()}`,
     content: answer,
     isUser: false,
     timestamp: Date.now(),
-    links: relatedLinks.length > 0 ? relatedLinks : undefined
-  }
-  messages.value.push(aiMessage)
+    links: relatedLinks.length > 0 ? relatedLinks : undefined,
+  })
 
   // 生成建议问题
   generateSuggestedQuestions(message, answer)
@@ -403,26 +642,31 @@ const sendMessage = async () => {
 // 根据上下文生成建议问题
 const generateSuggestedQuestions = (question: string, answer: string) => {
   const topicKeywords: Record<string, string[]> = {
-    '宿舍': ['宿舍怎么换？', '宿舍有空调吗？', '宿舍几点熄灯？'],
-    '食堂': ['哪个食堂好吃？', '食堂营业时间？', '食堂价格怎么样？'],
-    '选课': ['选课什么时候开始？', '怎么选体育课？', '选课系统打不开怎么办？'],
-    '社团': ['有哪些社团？', '怎么加入社团？', '社团活动多吗？'],
-    '实验室': ['怎么加入实验室？', '有哪些实验室？', '实验室招新条件？'],
-    '军训': ['军训多长时间？', '军训要准备什么？', '军训可以请假吗？'],
-    '校园网': ['校园网怎么连？', '校园卡怎么办？', '宽带怎么装？'],
-    '快递': ['快递站在哪？', '快递怎么取？', '可以寄快递吗？'],
-    '防骗': ['新生防骗指南', '怎么识别诈骗？', '校园贷是什么？'],
-    '图书馆': ['图书馆开放时间？', '怎么借书？', '图书馆有WiFi吗？'],
+    '宿舍': ['宿舍怎么换？', '宿舍有空调吗？', '宿舍几点熄灯？', '宿舍门禁几点？', '宿舍怎么缴费？'],
+    '食堂': ['哪个食堂好吃？', '食堂营业时间？', '食堂价格怎么样？', '学校有几个食堂？', '食堂可以刷什么？'],
+    '选课': ['选课什么时候开始？', '怎么选体育课？', '选课系统打不开怎么办？', '怎么查课程成绩？', '学分不够怎么办？'],
+    '社团': ['有哪些社团？', '怎么加入社团？', '社团活动多吗？', '社团招新什么时候开始？', '参加社团需要面试吗？'],
+    '实验室': ['怎么加入实验室？', '有哪些实验室？', '实验室招新条件？', '实验室主要研究什么？', '如何联系实验室负责人？'],
+    '军训': ['军训多长时间？', '军训要准备什么？', '军训可以请假吗？', '军训期间怎么洗澡？', '军训服装在哪里领取？'],
+    '校园网': ['校园网怎么连？', '校园卡怎么办？', '宽带怎么装？', '校园网密码怎么改？', '校园网故障找谁？'],
+    '快递': ['快递站在哪？', '快递怎么取？', '可以寄快递吗？', '快递柜怎么使用？', '校内收货地址怎么填？'],
+    '防骗': ['新生防骗指南', '怎么识别诈骗？', '校园贷是什么？', '接到陌生电话怎么办？', '兼职信息怎么辨别？'],
+    '图书馆': ['图书馆开放时间？', '怎么借书？', '图书馆有WiFi吗？', '如何预约自习座位？', '图书逾期怎么办？'],
   }
+  const generalQuestions = [
+    '校园网怎么连接？',
+    '图书馆几点开放？',
+    '学校有哪些社团？',
+    '有哪些实验室可以加入？',
+    '食堂营业到几点？',
+    '新生报到需要准备什么？',
+  ]
 
   const combined = question + answer
-  for (const [keyword, questions] of Object.entries(topicKeywords)) {
-    if (combined.includes(keyword)) {
-      suggestedQuestions.value = questions
-      return
-    }
-  }
-  suggestedQuestions.value = []
+  const topicQuestions = Object.entries(topicKeywords)
+    .find(([keyword]) => combined.includes(keyword))?.[1]
+    || generalQuestions
+  suggestedQuestions.value = shuffle(topicQuestions).slice(0, 3)
 }
 
 // 滚动到底部
@@ -434,116 +678,20 @@ const scrollToBottom = () => {
   })
 }
 
-const escapeHtml = (content: string) => content.replace(/[&<>"']/g, (character) => {
-  const entities: Record<string, string> = {
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;'
-  }
-  return entities[character]
+const markdown = new MarkdownIt({
+  breaks: true,
+  html: false,
+  linkify: false,
+  typographer: false,
 })
 
-const isSafeLink = (url: string) => /^(https?:\/\/|mailto:|\/(?!\/)|\.{1,2}\/|#)/i.test(url)
-
-// 格式化消息内容 - 增强的Markdown支持
-const formatMessage = (content: string) => {
-  let result = escapeHtml(content)
-  
-  // 先处理代码块，避免代码块内的内容被错误格式化
-  const codeBlocks: string[] = []
-  result = result.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
-    const index = codeBlocks.length
-    codeBlocks.push(`<pre><code class="${lang || ''}">${code.trim()}</code></pre>`)
-    return `__CODE_BLOCK_${index}__`
-  })
-  
-  // 处理行内代码，避免被其他格式化影响
-  const inlineCodes: string[] = []
-  result = result.replace(/`([^`]+)`/g, (match, code) => {
-    const index = inlineCodes.length
-    inlineCodes.push(`<code>${code}</code>`)
-    return `__INLINE_CODE_${index}__`
-  })
-  
-  // 按行处理，避免跨行匹配问题
-  const lines = result.split('\n')
-  const processedLines = lines.map(line => {
-    // 跳过代码块占位符行
-    if (line.includes('__CODE_BLOCK_') || line.includes('__INLINE_CODE_')) {
-      return line
-    }
-    
-    // 跳过标题格式，保持为普通文本
-    
-    // 有序列表 - 数字开头
-    if (/^\d+\.\s/.test(line)) {
-      const content = line.replace(/^\d+\.\s/, '')
-      return `<li data-list-type="ol">${content}</li>`
-    }
-    // 无序列表 - 必须在行首
-    else if (/^[-*+]\s/.test(line)) {
-      const content = line.substring(2)
-      return `<li data-list-type="ul">${content}</li>`
-    }
-    // 引用块
-    else if (line.startsWith('> ')) {
-      return `<blockquote>${line.substring(2)}</blockquote>`
-    }
-    
-    return line
-  })
-  
-  result = processedLines.join('\n')
-  
-  // 包装连续的列表项
-  result = result.replace(/(<li data-list-type="ul">.*<\/li>\n?)+/g, (match) => {
-    return `<ul>${match.replace(/\n/g, '').replace(/ data-list-type="ul"/g, '')}</ul>`
-  })
-  result = result.replace(/(<li data-list-type="ol">.*<\/li>\n?)+/g, (match) => {
-    return `<ol>${match.replace(/\n/g, '').replace(/ data-list-type="ol"/g, '')}</ol>`
-  })
-  
-  // 其他格式化
-  result = result
-    // 链接格式 [文本](链接)
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label, url) => {
-      if (!isSafeLink(url)) return label
-      return `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`
-    })
-    
-    // 删除线
-    .replace(/~~(.*?)~~/g, '<del>$1</del>')
-    
-    // 加粗和斜体 - 更精确的匹配
-    .replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-    
-    // 下划线加粗和斜体
-    .replace(/___([^_]+)___/g, '<strong><em>$1</em></strong>')
-    .replace(/__([^_]+)__/g, '<strong>$1</strong>')
-    .replace(/_([^_]+)_/g, '<em>$1</em>')
-    
-    // 高亮文本
-    .replace(/==([^=]+)==/g, '<mark>$1</mark>')
-    
-    // 换行
-    .replace(/\n/g, '<br>')
-  
-  // 恢复代码块
-  codeBlocks.forEach((block, index) => {
-    result = result.replace(`__CODE_BLOCK_${index}__`, block)
-  })
-  
-  // 恢复行内代码
-  inlineCodes.forEach((code, index) => {
-    result = result.replace(`__INLINE_CODE_${index}__`, code)
-  })
-  
-  return result
-}
+const formatMessage = (content: string) => DOMPurify.sanitize(markdown.render(content), {
+  ALLOWED_ATTR: ['class', 'href', 'rel', 'target'],
+  ALLOWED_TAGS: [
+    'a', 'blockquote', 'br', 'code', 'del', 'em', 'h1', 'h2', 'h3', 'h4',
+    'li', 'ol', 'p', 'pre', 'strong', 'ul',
+  ],
+})
 
 // 格式化时间
 const formatTime = (timestamp: number) => {
@@ -565,31 +713,6 @@ const formatTime = (timestamp: number) => {
   }
 }
 
-// 处理消息中的链接点击
-const handleMessageClick = (event: Event) => {
-  const target = event.target as HTMLElement
-  
-  // 处理Tip链接点击
-  if (target.classList.contains('tip-link')) {
-    event.preventDefault()
-    const url = target.getAttribute('data-url')
-    
-    if (url) {
-      // 复制链接到剪贴板
-      navigator.clipboard?.writeText(url).then(() => {
-        // 显示复制成功的提示
-        target.setAttribute('data-tip', '链接已复制！')
-        setTimeout(() => {
-          target.setAttribute('data-tip', '点击复制链接')
-        }, 2000)
-      }).catch(() => {
-        // 如果复制失败，直接打开链接
-        window.open(url, '_blank')
-      })
-    }
-  }
-}
-
 // 处理点击外部关闭
 const handleClickOutside = (event: Event) => {
   const target = event.target as HTMLElement
@@ -599,13 +722,15 @@ const handleClickOutside = (event: Event) => {
 }
 
 onMounted(() => {
+  quickQuestions.value = getRandomQuestions()
   document.addEventListener('click', handleClickOutside)
-  loadKnowledge()
 })
 
 onUnmounted(() => {
   requestController?.abort()
   if (cooldownTimer) clearInterval(cooldownTimer)
+  feedbackTimers.forEach(timer => clearTimeout(timer))
+  feedbackTimers.clear()
   document.removeEventListener('click', handleClickOutside)
 })
 </script>
@@ -748,7 +873,7 @@ onUnmounted(() => {
 .chat-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 16px;
+  padding: 10px 12px 8px;
   scroll-behavior: smooth;
 }
 
@@ -777,30 +902,83 @@ onUnmounted(() => {
 .quick-questions {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .quick-btn {
-  padding: 8px 16px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 14px 10px 16px;
   border: 1px solid var(--vp-c-divider);
   background: var(--vp-c-bg-soft);
   color: var(--vp-c-text-1);
-  border-radius: 8px;
+  border-radius: 10px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
   font-size: 14px;
+  line-height: 1.45;
+  text-align: left;
+  animation: question-option-in 0.45s both;
 }
+
+.quick-btn:nth-child(2) { animation-delay: 0.05s; }
+.quick-btn:nth-child(3) { animation-delay: 0.1s; }
+.quick-btn:nth-child(4) { animation-delay: 0.15s; }
 
 .quick-btn:hover {
   border-color: var(--vp-c-brand-1);
   background: var(--vp-c-brand-soft);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.1);
+  transform: translateY(-2px);
+}
+
+.quick-btn:active,
+.suggested-btn:active {
+  transform: translateY(0) scale(0.985);
+}
+
+.quick-btn:focus-visible,
+.suggested-btn:focus-visible {
+  outline: 3px solid var(--vp-c-brand-soft);
+  outline-offset: 2px;
+}
+
+.question-arrow {
+  flex: 0 0 auto;
+  color: var(--vp-c-brand-1);
+  font-size: 18px;
+  opacity: 0.7;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.quick-btn:hover .question-arrow,
+.suggested-btn:hover .question-arrow {
+  opacity: 1;
+  transform: translateX(3px);
+}
+
+@keyframes question-option-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* 消息样式 */
 .message {
   display: flex;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 10px;
 }
 
 .user-message {
@@ -850,25 +1028,6 @@ onUnmounted(() => {
 /* 只保留必要的消息布局样式，其他样式由 vp-doc 类提供 */
 
 /* Tip链接样式 - 项目特有组件 */
-.message-text .tip-link {
-  position: relative;
-  color: var(--vp-c-brand-1);
-  text-decoration: underline dashed var(--vp-c-text-3);
-  text-underline-offset: 3px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.message-text .tip-link:hover {
-  color: var(--vp-c-brand-2);
-  text-decoration-color: var(--vp-c-brand-1);
-}
-
-.message-text .tip-link:active {
-  transform: scale(0.98);
-}
-
-
 .user-message .message-text {
   background: var(--vp-c-brand-1);
   color: white;
@@ -909,20 +1068,22 @@ onUnmounted(() => {
   color: white;
 }
 
-.user-message .message-text .tip-link {
-  color: rgba(255, 255, 255, 0.9);
-  text-decoration-color: rgba(255, 255, 255, 0.5);
-}
-
-.user-message .message-text .tip-link:hover {
-  color: white;
-  text-decoration-color: rgba(255, 255, 255, 0.8);
-}
-
 .ai-message .message-text {
   background: var(--vp-c-bg-soft);
   color: var(--vp-c-text-1);
   border-bottom-left-radius: 4px;
+}
+
+.ai-message .message-text.vp-doc p {
+  margin: 8px 0;
+}
+
+.ai-message .message-text.vp-doc > :first-child {
+  margin-top: 0;
+}
+
+.ai-message .message-text.vp-doc > :last-child {
+  margin-bottom: 0;
 }
 
 .message-time {
@@ -930,6 +1091,146 @@ onUnmounted(() => {
   color: var(--vp-c-text-3);
   margin-top: 4px;
   padding: 0 14px;
+}
+
+.message-feedback {
+  position: relative;
+  display: flex;
+  gap: 4px;
+  padding: 2px 10px 0;
+}
+
+.message-feedback button {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--vp-c-text-3);
+  cursor: pointer;
+}
+
+.message-feedback button:hover,
+.message-feedback button.active {
+  background: var(--vp-c-bg-mute);
+  color: var(--vp-c-brand-1);
+}
+
+/* 赞：暖橙高亮 + 弹性缩放 */
+.message-feedback button.liking {
+  color: #FFB23E;
+  animation: feedback-like-pop 0.28s ease-out;
+}
+
+/* 首次踩：低饱和灰蓝 + 左右抖动 */
+.message-feedback button.dislike-warn {
+  color: #8a97a8;
+  animation: feedback-dislike-shake 0.3s ease-in-out;
+}
+
+/* 二次踩：置灰降饱和，无位移 */
+.message-feedback button.dislike-confirmed {
+  color: var(--vp-c-text-3);
+  filter: saturate(0.3);
+  opacity: 0.7;
+}
+
+/* 反馈浮层：气泡与粒子容器 */
+.feedback-overlay {
+  position: absolute;
+  bottom: 100%;
+  left: 10px;
+  margin-bottom: 6px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.feedback-bubble {
+  display: inline-block;
+  max-width: 220px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border-bottom-left-radius: 4px;
+  background: var(--vp-c-bg-soft);
+  border: 1px solid var(--vp-c-divider);
+  color: var(--vp-c-text-1);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+  animation: feedback-bubble-in 0.25s ease-out;
+}
+
+.feedback-bubble .kaomoji {
+  font-style: normal;
+  margin-left: 4px;
+  color: var(--vp-c-text-2);
+}
+
+/* 星星粒子：从按钮位置向上喷射、轻微旋转并淡出 */
+.feedback-stars {
+  position: absolute;
+  bottom: 100%;
+  left: 4px;
+  width: 0;
+  height: 0;
+}
+
+.feedback-stars .star {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  font-style: normal;
+  font-size: 10px;
+  color: #FFB23E;
+  opacity: 0;
+  animation: feedback-star-burst 0.6s ease-out forwards;
+}
+
+.feedback-stars .star:nth-child(1) { --star-x: -14px; --star-r: -40deg; animation-delay: 0s; }
+.feedback-stars .star:nth-child(2) { --star-x: -6px; --star-r: 30deg; animation-delay: 0.05s; font-size: 8px; }
+.feedback-stars .star:nth-child(3) { --star-x: 2px; --star-r: -20deg; animation-delay: 0.1s; font-size: 12px; }
+.feedback-stars .star:nth-child(4) { --star-x: 10px; --star-r: 45deg; animation-delay: 0.08s; font-size: 8px; }
+.feedback-stars .star:nth-child(5) { --star-x: 18px; --star-r: -35deg; animation-delay: 0.15s; }
+.feedback-stars .star:nth-child(6) { --star-x: 6px; --star-r: 15deg; animation-delay: 0.2s; font-size: 9px; }
+
+@keyframes feedback-like-pop {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+
+@keyframes feedback-dislike-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-6px); }
+  80% { transform: translateX(6px); }
+}
+
+@keyframes feedback-bubble-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes feedback-star-burst {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) rotate(0deg) scale(0.5);
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--star-x, 0), -36px) rotate(var(--star-r, 0deg)) scale(1);
+  }
 }
 
 /* 相关页面链接 */
@@ -1017,10 +1318,11 @@ onUnmounted(() => {
 /* Dify建议问题 */
 .suggested-questions {
   margin: 12px 0 8px 0;
-  padding: 8px 12px;
-  background: var(--vp-c-bg-soft);
+  padding: 10px 12px 12px;
+  background: linear-gradient(145deg, var(--vp-c-bg-soft), var(--vp-c-bg-mute));
   border-radius: 8px;
   border: 1px solid var(--vp-c-divider);
+  animation: question-option-in 0.35s ease both;
 }
 
 .suggested-title {
@@ -1029,40 +1331,70 @@ onUnmounted(() => {
   gap: 4px;
   font-size: 12px;
   color: var(--vp-c-text-2);
-  margin-bottom: 6px;
+  margin-bottom: 8px;
   font-weight: 500;
 }
 
 .suggested-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
 }
 
 .suggested-btn {
-  padding: 4px 8px;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  min-width: 0;
+  padding: 8px 10px 8px 12px;
   border: 1px solid var(--vp-c-divider);
   background: var(--vp-c-bg);
   color: var(--vp-c-text-1);
-  border-radius: 12px;
+  border-radius: 10px;
   cursor: pointer;
-  transition: all 0.2s ease;
-  font-size: 11px;
-  line-height: 1.3;
-  flex: 1;
-  min-width: 80px;
-  max-width: 120px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: left;
+  flex: 1 1 calc(50% - 8px);
+  animation: question-option-in 0.4s both;
 }
+
+.suggested-btn:nth-child(2) { animation-delay: 0.06s; }
+.suggested-btn:nth-child(3) { animation-delay: 0.12s; }
 
 .suggested-btn:hover {
   border-color: var(--vp-c-brand-1);
   background: var(--vp-c-brand-soft);
   color: var(--vp-c-brand-1);
-  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+  transform: translateY(-2px);
+}
+
+.suggested-btn .question-arrow {
+  font-size: 16px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quick-btn,
+  .suggested-questions,
+  .suggested-btn {
+    animation: none;
+    transition: none;
+  }
+
+  /* 反馈动效降级：仅保留气泡文字，无 transform 与粒子 */
+  .message-feedback button.liking,
+  .message-feedback button.dislike-warn,
+  .feedback-bubble {
+    animation: none;
+  }
+
+  .feedback-stars {
+    display: none;
+  }
 }
 
 /* 输入区域 */
@@ -1204,9 +1536,15 @@ onUnmounted(() => {
     width: 56px;
     height: 56px;
   }
-  
+
   .chat-icon {
     font-size: 22px;
+  }
+
+  /* 反馈气泡宽度自适应，不溢出 .chat-window */
+  .feedback-bubble {
+    max-width: calc(100vw - 120px);
+    white-space: normal;
   }
 }
 

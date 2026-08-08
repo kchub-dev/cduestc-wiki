@@ -1,4 +1,4 @@
-export type AIProviderId = 'openai' | 'spark'
+export type AIProviderId = 'openai'
 
 export interface AIHistoryMessage {
     role: 'user' | 'assistant'
@@ -18,6 +18,7 @@ export interface AIChatRequest {
     sources: AIKnowledgeSource[]
     history: AIHistoryMessage[]
     signal?: AbortSignal
+    onToken?: (content: string) => void
 }
 
 export interface AIChatResponse {

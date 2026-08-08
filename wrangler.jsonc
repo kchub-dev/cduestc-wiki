@@ -13,6 +13,20 @@
     }
   ],
   "vars": {
-    "SPARK_ALLOWED_ORIGINS": "https://wiki.kcos.club,http://127.0.0.1:5175"
+    "SPARK_ALLOWED_ORIGINS": "https://wiki.kcos.club,http://127.0.0.1:5175",
+    "SPARK_OPENAI_URL": "https://spark-api-open.xf-yun.com/v1/chat/completions",
+    "SPARK_MODEL": "generalv3.5",
+    "SPARK_FALLBACK_URL": "https://spark-api-open.xf-yun.com/v2/chat/completions",
+    "SPARK_FALLBACK_MODEL": "spark-x"
+  },
+  "analytics_engine_datasets": [
+    {
+      "binding": "AI_TELEMETRY",
+      "dataset": "cduestc_ai_telemetry"
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
   }
 }

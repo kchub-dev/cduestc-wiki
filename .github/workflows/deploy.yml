@@ -24,7 +24,12 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -32,13 +37,22 @@ jobs:
           node-version: 22
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Build
         env:
-          VITE_AI_PROVIDER: ${{ vars.VITE_AI_PROVIDER }}
-          VITE_SPARK_AUTH_URL: ${{ vars.VITE_SPARK_AUTH_URL }}
-        run: pnpm build
+          VITE_OPENAI_PROXY_URL: ${{ vars.VITE_OPENAI_PROXY_URL }}
+          VITE_AI_TELEMETRY_URL: ${{ vars.VITE_AI_TELEMETRY_URL }}
+          VITE_OPENAI_MODEL: ${{ vars.VITE_OPENAI_MODEL }}
+        run: |
+          test -n "$VITE_OPENAI_PROXY_URL" || { echo "VITE_OPENAI_PROXY_URL is required"; exit 1; }
+          pnpm build
+
+      - name: Retrieval regression
+        run: pnpm eval:retrieval
+
+      - name: AI input security regression
+        run: pnpm test:ai-security
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
@@ -58,3 +72,53 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  worker:
+    runs-on: ubuntu-latest
+    # 站点构建失败时不应把 Worker 单独推上生产，避免前后端版本漂移
+    needs: build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      # 纯文档改动不必重新部署生产 Worker
+      - name: Detect worker changes
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only HEAD^ HEAD 2>/dev/null | grep -qE '^(workers/|wrangler\.jsonc|scripts/test-worker\.mjs)'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup pnpm
+        if: steps.changes.outputs.changed == 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Setup Node.js
+        if: steps.changes.outputs.changed == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.changes.outputs.changed == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Worker smoke test
+        if: steps.changes.outputs.changed == 'true'
+        run: pnpm test:worker
+
+      - name: Deploy Cloudflare Worker
+        if: steps.changes.outputs.changed == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          command: deploy --config wrangler.jsonc

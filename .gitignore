@@ -10,6 +10,15 @@ docs/public/knowledge.*.[0-9a-f]*.json
 .dev.vars*
 .wrangler/
 
+# 构建时自动生成的扩展打包产物
+docs/public/downloads/
+extension-dist/
+
 # 本地工具临时产物
 .playwright-cli/
+.playwright-mcp/
 .workbuddy/
+.mimosa/
+.v2c/
+.video_agent/
+out/

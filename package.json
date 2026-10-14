@@ -4,8 +4,8 @@
   "version": "0.1.1",
   "private": true,
   "scripts": {
-    "predev": "python3 scripts/gen-knowledge.py",
-    "prebuild": "python3 scripts/gen-knowledge.py && node scripts/scan-content.mjs",
+    "predev": "python3 scripts/gen-knowledge.py && python3 scripts/pack-extension.py",
+    "prebuild": "python3 scripts/gen-knowledge.py && python3 scripts/pack-extension.py && node scripts/scan-content.mjs",
     "dev": "vitepress dev docs --host",
     "build": "vitepress build docs && node scripts/gen-sitemap.mjs",
     "postbuild": "node scripts/verify-knowledge.mjs",
@@ -16,7 +16,8 @@
     "scan:content": "node scripts/scan-content.mjs",
     "test:worker": "node scripts/test-worker.mjs && node scripts/switch-ai-upstream.mjs --self-test",
     "switch:ai-upstream": "node scripts/switch-ai-upstream.mjs",
-    "ai:console": "node scripts/ai-upstream-console.mjs"
+    "ai:console": "node scripts/ai-upstream-console.mjs",
+    "pack:extension": "python3 scripts/pack-extension.py"
   },
   "devDependencies": {
     "@antfu/eslint-config": "^4.8.1",

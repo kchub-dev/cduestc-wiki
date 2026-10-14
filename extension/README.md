@@ -8,7 +8,7 @@
 
 1. 打开 Chrome / Edge，地址栏进入 `chrome://extensions`（Edge 为 `edge://extensions`）。
 2. 右上角打开「开发者模式」。
-3. 点击「加载已解压的扩展程序」，选择本仓库的 `extension/` 目录。
+3. 点击「加载已解压的扩展程序」，选择扩展目录：从本仓库开发就选 `extension/` 目录；从 Wiki 下载 zip 的用户请先解压，选择解压出的 `cduestc-ai-extension` 文件夹。
 4. 在 **当前浏览器里登录** [chat.deepseek.com](https://chat.deepseek.com) 或 [www.doubao.com](https://www.doubao.com)（用到哪家登哪家），登录后**打开一次它的页面**（让辅助脚本把登录凭证上报给扩展）。
 5. 打开 Wiki 任意页面，点右下角 AI 助手，标题栏把「网关」切换成「直连」即可。
 
@@ -55,6 +55,15 @@ chat.deepseek.com / www.doubao.com（用户自己的账号）
 | `src/sse.js` | SSE 流读取 + 消息压平工具 |
 | `popup.html` / `popup.js` | 弹窗：默认上游、深度思考开关、登录状态 |
 | `tools/gen-icons.mjs` | 图标生成脚本（纯 Node，无依赖） |
+
+## 发布打包
+
+`pnpm pack:extension`（`predev` / `prebuild` 会自动执行）生成两个 zip：
+
+- `docs/public/downloads/cduestc-ai-extension.zip`：**用户下载版**，随站点发布，学生从 `https://wiki.kcos.club/downloads/cduestc-ai-extension.zip` 直接下载，无需 GitHub / 网盘 / 梯子。带顶层文件夹 `cduestc-ai-extension/`，解压后即可在浏览器里加载。
+- `extension-dist/cduestc-ai-extension-store-v{version}.zip`：**商店提交版**，`manifest.json` 位于 zip 根部，符合 Edge / Chrome 加载项商店上传要求。上架流程、商店文案与权限说明模板见 `STORE-SUBMISSION.md`。
+
+两个产物都是构建时自动生成，已加入 `.gitignore`，不入库。
 
 ## 上游改版时的维护指南
 

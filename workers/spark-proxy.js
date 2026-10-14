@@ -34,7 +34,12 @@ const UPSTREAM_PRESETS = {
     oaifree: {
         name: 'oaifree',
         url: 'https://hub.oaifree.com/v1/chat/completions',
-        model: 'MiniMax-M2.5',
+        model: 'deepseek-ai/DeepSeek-V4-Flash',
+    },
+    modelverse: {
+        name: 'modelverse',
+        url: 'https://api.modelverse.cn/v1/chat/completions',
+        model: 'deepseek-v4.1-flash',
     },
 }
 
@@ -136,8 +141,10 @@ function buildUpstreamRequest(env, payload, messages) {
 function hasOpenAIContent(text) {
     try {
         const payload = JSON.parse(text)
+        if (payload.error)
+            return false
         const content = payload.choices?.[0]?.message?.content ?? payload.choices?.[0]?.delta?.content
-        return typeof content === 'string' && content.trim().length > 0
+        return typeof content === 'string' && content.trim().length > 0 && !isSoftErrorText(content)
     }
     catch {
         return false
@@ -145,7 +152,7 @@ function hasOpenAIContent(text) {
 }
 
 function hasOpenAIStreamContent(body) {
-    let hasContent = false
+    let content = ''
     for (const line of String(body).split(/\r?\n/u)) {
         if (!line.startsWith('data:'))
             continue
@@ -156,15 +163,36 @@ function hasOpenAIStreamContent(body) {
             const payload = JSON.parse(data)
             if (payload.error || payload.code || payload.message && !payload.choices)
                 return false
-            const content = payload.choices?.[0]?.delta?.content ?? payload.choices?.[0]?.message?.content
-            if (typeof content === 'string' && content.trim())
-                hasContent = true
+            const token = payload.choices?.[0]?.delta?.content ?? payload.choices?.[0]?.message?.content
+            if (typeof token === 'string')
+                content += token
         }
         catch {
             return false
         }
     }
-    return hasContent
+    return content.trim().length > 0 && !isSoftErrorText(content)
+}
+
+// 上游可能用 HTTP 200 包装业务错误：渠道故障时把「参数错误」「Unauthorized」
+// 之类的提示直接当成正文返回。这类响应若按正常答案透传，用户会把错误提示
+// 误当成回答。只在正文很短且与已知错误提示完全一致时判定，避免误伤正常回答。
+const SOFT_ERROR_TEXTS = new Set([
+    '参数错误',
+    '请求参数错误',
+    '请求错误',
+    'unauthorized',
+    'invalid api key',
+    'invalid request',
+    'invalid parameter',
+    'invalid params',
+])
+
+function isSoftErrorText(value) {
+    const text = String(value || '').trim().replace(/[。.!！:：]+$/u, '').toLowerCase()
+    if (!text || text.length > 40)
+        return false
+    return SOFT_ERROR_TEXTS.has(text)
 }
 
 function responseWithBody(response, body, origin) {
@@ -422,7 +450,15 @@ async function handleChatCompletion(request, env, origin) {
                         continue
                     return json({ error: { message: lastError, type: 'upstream_error' } }, 502, origin)
                 }
-                return passthrough(upstreamResponse, origin)
+                // 非流式同样可能被 HTTP 200 包装软错误（渠道故障时把「参数错误」当正文）
+                const body = await upstreamResponse.text()
+                if (!hasOpenAIContent(body)) {
+                    lastError = 'Upstream returned an invalid response'
+                    if (!last)
+                        continue
+                    return json({ error: { message: lastError, type: 'upstream_error' } }, 502, origin)
+                }
+                return responseWithBody(upstreamResponse, body, origin)
             }
 
             if (!last && shouldFailover(upstreamResponse.status)) {

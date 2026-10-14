@@ -13,8 +13,14 @@ export const UPSTREAM_PRESETS = {
     oaifree: {
         name: 'oaifree',
         url: 'https://hub.oaifree.com/v1/chat/completions',
-        model: 'MoonshotAI/Kimi-K2.6',
-        hint: 'LinuxDo HUB（oaifree），国内与 Workers 出口均可达。当前可用模型 Kimi-K2.6；Qwen/DeepSeek 渠道曾整批故障。',
+        model: 'deepseek-ai/DeepSeek-V4-Flash',
+        hint: 'LinuxDo HUB（oaifree），国内与 Workers 出口均可达。2026-10-14 实测可用模型 DeepSeek-V4-Flash；Kimi-K2.6/DeepSeek-V3.x/Qwen3-235B 渠道返回「参数错误」（渠道故障），切换前建议先用控制台探测。',
+    },
+    modelverse: {
+        name: 'modelverse',
+        url: 'https://api.modelverse.cn/v1/chat/completions',
+        model: 'deepseek-v4.1-flash',
+        hint: 'ModelVerse 单模型白名单（deepseek-v4.1-flash），额度永久有效。额度用尽返回 403 quota exceeded，会自动触发故障转移。',
     },
     siliconflow: {
         name: 'siliconflow',

@@ -14,8 +14,12 @@
   ],
   "vars": {
     "SPARK_ALLOWED_ORIGINS": "https://wiki.kcos.club,http://127.0.0.1:5175",
+    "SPARK_FALLBACK_MODEL": "deepseek-v4.1-flash",
+    "SPARK_FALLBACK_NAME": "modelverse",
+    "SPARK_FALLBACK_PRESET": "modelverse",
+    "SPARK_FALLBACK_URL": "https://api.modelverse.cn/v1/chat/completions",
     "SPARK_OPENAI_URL": "https://hub.oaifree.com/v1/chat/completions",
-    "SPARK_MODEL": "MoonshotAI/Kimi-K2.6",
+    "SPARK_MODEL": "deepseek-ai/DeepSeek-V4-Flash",
     "SPARK_PRIMARY_PRESET": "oaifree"
   },
   "analytics_engine_datasets": [

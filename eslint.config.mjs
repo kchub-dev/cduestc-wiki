@@ -20,4 +20,22 @@ export default antfu({
         'jsonc/sort-keys': 'off',
         'style/eol-last': 'off',
     },
+}, {
+    // 浏览器扩展代码：chrome API 全局 + 允许 console 调试输出
+    files: ['extension/**/*.js'],
+    languageOptions: {
+        globals: {
+            chrome: 'readonly',
+        },
+    },
+    rules: {
+        'no-console': 'off',
+    },
+}, {
+    // 扩展的 Node 工具脚本（图标生成等）
+    files: ['extension/tools/**/*.mjs'],
+    rules: {
+        'no-console': 'off',
+        'node/prefer-global/buffer': 'off',
+    },
 })

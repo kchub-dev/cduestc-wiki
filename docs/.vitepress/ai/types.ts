@@ -1,4 +1,4 @@
-export type AIProviderId = 'openai'
+export type AIProviderId = 'openai' | 'extension'
 
 export interface AIHistoryMessage {
     role: 'user' | 'assistant'

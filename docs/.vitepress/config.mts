@@ -117,6 +117,7 @@ function sidebar(): DefaultTheme.Sidebar {
                 items: [
                     { text: '写在开头', link: '/overview' },
                     { text: '项目介绍', link: '/project' },
+                    { text: 'AI 助手直连', link: '/ai-extension' },
                 ],
             },
             {

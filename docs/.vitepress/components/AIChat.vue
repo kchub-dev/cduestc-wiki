@@ -26,6 +26,64 @@
             </div>
           </div>
           <div class="header-actions">
+            <div class="mode-select">
+              <button
+                class="mode-btn"
+                :class="{ active: chatMode === 'byow' }"
+                v-tip="'选择回答来源'"
+                @click.stop="modeMenuOpen = !modeMenuOpen"
+              >
+                <Icon :icon="chatMode === 'byow' ? 'ri:flashlight-line' : 'ri:cloud-line'" />
+                <span>{{ chatMode === 'byow' ? `直连·${bridgeUpstream}` : '网关' }}</span>
+                <Icon icon="ri:arrow-down-s-line" class="mode-caret" :class="{ open: modeMenuOpen }" />
+              </button>
+              <Transition name="mode-menu">
+                <div v-if="modeMenuOpen" class="mode-menu" @click.stop>
+                  <button
+                    class="mode-option"
+                    :class="{ selected: chatMode === 'gateway' }"
+                    type="button"
+                    @click="selectMode('gateway')"
+                  >
+                    <Icon icon="ri:cloud-line" class="mode-option-icon" />
+                    <div class="mode-option-body">
+                      <div class="mode-option-title">校园网关</div>
+                      <div class="mode-option-desc">科成星球提供的 AI 服务</div>
+                    </div>
+                    <Icon v-if="chatMode === 'gateway'" icon="ri:check-line" class="mode-option-check" />
+                  </button>
+                  <button
+                    v-for="option in upstreamOptions"
+                    :key="option.id"
+                    class="mode-option"
+                    :class="{
+                      selected: chatMode === 'byow' && bridgeUpstreamId === option.id,
+                      disabled: !bridgeReady,
+                    }"
+                    type="button"
+                    :disabled="!bridgeReady"
+                    @click="selectMode('byow', option.id)"
+                  >
+                    <Icon icon="ri:flashlight-line" class="mode-option-icon" />
+                    <div class="mode-option-body">
+                      <div class="mode-option-title">
+                        {{ option.label }}
+                        <span class="mode-option-badge">本地直连</span>
+                      </div>
+                      <div class="mode-option-desc">用你自己登录的 {{ option.label }} 账号回答</div>
+                    </div>
+                    <Icon
+                      v-if="chatMode === 'byow' && bridgeUpstreamId === option.id"
+                      icon="ri:check-line"
+                      class="mode-option-check"
+                    />
+                  </button>
+                  <div v-if="!bridgeReady" class="mode-menu-foot">
+                    未检测到「科成星球 AI 直连」扩展，<a href="/ai-extension">查看安装说明</a>
+                  </div>
+                </div>
+              </Transition>
+            </div>
             <button @click="clearHistory" class="action-btn" v-tip="'清空对话'">
               <Icon icon="ri:delete-bin-line" />
             </button>
@@ -37,6 +95,21 @@
 
         <!-- 消息列表 -->
         <div class="chat-messages" ref="messagesContainer">
+          <!-- 本地直连推荐提示：检测到扩展且当前在网关模式时出现，可一键切换或关闭 -->
+          <div v-if="showDirectHint" class="direct-hint">
+            <Icon icon="ri:flashlight-line" class="direct-hint-icon" />
+            <div class="direct-hint-body">
+              <div class="direct-hint-title">检测到「本地直连」扩展</div>
+              <div class="direct-hint-desc">切到直连模式，回答由你自己登录的豆包 / DeepSeek 账号生成，更快更稳。</div>
+            </div>
+            <div class="direct-hint-actions">
+              <button class="direct-hint-switch" type="button" @click="acceptDirectHint">切换</button>
+              <button class="direct-hint-close" type="button" aria-label="暂不切换" @click="dismissDirectHint">
+                <Icon icon="ri:close-line" />
+              </button>
+            </div>
+          </div>
+
           <!-- 欢迎消息 -->
           <div v-if="messages.length === 0" class="welcome-message">
             <Icon icon="ri:robot-2-line" class="welcome-icon" />
@@ -209,12 +282,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import DOMPurify from 'dompurify'
 import MarkdownIt from 'markdown-it'
 import { rewriteRetrievalQuery, searchKnowledge, selectRelatedSources } from '../ai/knowledge'
 import type { KnowledgeEntry, SemanticIndex } from '../ai/knowledge'
-import { activeAIProvider } from '../ai/provider'
+import { activeAIProvider, extensionAIProvider } from '../ai/provider'
+import { connectExtensionBridge } from '../ai/providers/extension'
+import { bridgeInfo, setBridgeProvider, upstreamLabel } from '../ai/bridge'
 import { OPENAI_CONFIG } from '../ai/config'
 import { redactTelemetryQuery, sanitizeUserInput } from '../ai/security'
 
@@ -236,6 +311,105 @@ type ChatMessage = {
 const messages = ref<ChatMessage[]>([])
 const suggestedQuestions = ref<string[]>([])
 let requestController: AbortController | null = null
+
+// 聊天模式：gateway=校园 AI 网关（默认，原有功能）；byow=本地直连
+// （「科成星球 AI 直连」浏览器扩展，用用户自己登录的豆包 / DeepSeek 回答）
+type ChatMode = 'gateway' | 'byow'
+const CHAT_MODE_KEY = 'ai_chat_mode'
+const chatMode = ref<ChatMode>('gateway')
+const bridgeReady = ref(false)
+const bridgeUpstreamId = ref('deepseek')
+const bridgeUpstream = computed(() => upstreamLabel(bridgeUpstreamId.value) || '直连')
+const modeMenuOpen = ref(false)
+
+// 直连可选上游：以扩展实际注册的能力为准，扩展未连接时用默认列表兜底展示
+const upstreamOptions = computed(() => {
+  const ids = bridgeReady.value && bridgeInfo.value?.providers?.length
+    ? bridgeInfo.value.providers
+    : ['deepseek', 'doubao']
+  return ids.map(id => ({ id, label: upstreamLabel(id) }))
+})
+
+const detectExtension = async () => {
+  const info = await connectExtensionBridge()
+  bridgeReady.value = Boolean(info)
+  if (info?.provider)
+    bridgeUpstreamId.value = info.provider
+  // 用户明确关过推荐提示就不再打扰
+  directHintDismissed.value = localStorage.getItem(DIRECT_HINT_KEY) === '1'
+  // 恢复用户上次的模式选择；扩展掉线时保持网关
+  if (localStorage.getItem(CHAT_MODE_KEY) === 'byow' && bridgeReady.value)
+    chatMode.value = 'byow'
+}
+
+const currentProvider = computed(() =>
+  chatMode.value === 'byow' && bridgeReady.value ? extensionAIProvider : activeAIProvider,
+)
+
+// 本地直连推荐提示：仅在「检测到扩展 + 当前在网关模式 + 用户没关过」时显示一次
+const DIRECT_HINT_KEY = 'ai_direct_hint_dismissed'
+const directHintDismissed = ref(false)
+const showDirectHint = computed(() =>
+  bridgeReady.value && chatMode.value === 'gateway' && !directHintDismissed.value,
+)
+
+const dismissDirectHint = () => {
+  directHintDismissed.value = true
+  localStorage.setItem(DIRECT_HINT_KEY, '1')
+}
+
+const acceptDirectHint = () => {
+  dismissDirectHint()
+  chatMode.value = 'byow'
+  localStorage.setItem(CHAT_MODE_KEY, 'byow')
+}
+
+// 切换回答来源：网关，或直连下的某个上游（豆包 / DeepSeek）
+const selectMode = async (mode: ChatMode, upstreamId?: string) => {
+  if (mode === 'gateway') {
+    chatMode.value = 'gateway'
+    localStorage.setItem(CHAT_MODE_KEY, 'gateway')
+    modeMenuOpen.value = false
+    return
+  }
+
+  if (!bridgeReady.value)
+    await detectExtension()
+  if (!bridgeReady.value) {
+    messages.value.push({
+      id: `bridge_${Date.now()}`,
+      content: '🧩 未检测到「科成星球 AI 直连」浏览器扩展。\n\n请参照 [使用说明](/ai-extension) 安装扩展（需在 Chrome / Edge 加载并登录豆包或 DeepSeek），或继续用校园网关提问。',
+      isUser: false,
+      timestamp: Date.now(),
+    })
+    scrollToBottom()
+    modeMenuOpen.value = false
+    return
+  }
+
+  if (upstreamId && upstreamId !== bridgeUpstreamId.value) {
+    const result = await setBridgeProvider(upstreamId)
+    if (!result.ok) {
+      messages.value.push({
+        id: `switch_${Date.now()}`,
+        content: `⚠️ 切换上游失败：${result.message || '扩展未响应'}。请重试，或点扩展图标在弹窗里切换。`,
+        isUser: false,
+        timestamp: Date.now(),
+      })
+      scrollToBottom()
+      return
+    }
+    bridgeUpstreamId.value = upstreamId
+  }
+
+  chatMode.value = 'byow'
+  localStorage.setItem(CHAT_MODE_KEY, 'byow')
+  modeMenuOpen.value = false
+}
+
+// 流式渲染期间隐藏结尾可能正在写入的 [[sources:...]] 标记，完成后统一替换为干净正文
+const stripLiveCitations = (text: string) =>
+  text.replace(/\s*\[\[\s*(?:sources?|来源)?\s*[:：]?[^\]]*$/gi, '')
 
 // DOM引用
 const messagesContainer = ref<HTMLElement>()
@@ -365,6 +539,8 @@ const toggleChat = async () => {
     await new Promise(resolve => setTimeout(resolve, 100))
     isOpen.value = true
     hasUnread.value = false
+    // 顺带重新探测浏览器扩展（可能刚安装 / 刚更新掉线）
+    detectExtension()
     await nextTick()
     setTimeout(() => {
       textareaRef.value?.focus()
@@ -404,7 +580,7 @@ const sendTelemetry = (event: string, payload: Record<string, number | string> =
   void fetch(OPENAI_CONFIG.telemetryUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ event, provider: activeAIProvider.id, ...payload }),
+    body: JSON.stringify({ event, provider: currentProvider.value.id, ...payload }),
     keepalive: true,
   }).catch(() => {})
 }
@@ -572,23 +748,49 @@ const sendMessage = async () => {
   if (!sources.length)
     sendTelemetry('search_zero', { queryPreview: redactTelemetryQuery(retrievalQuery) })
 
+  const provider = currentProvider.value
+  // 直连模式支持流式：先占位一条 AI 消息，边收增量边渲染
+  const streaming = provider.id === 'extension' && provider.isConfigured()
+  let liveMessage: ChatMessage | null = null
+  let liveRaw = ''
+  if (streaming) {
+    messages.value.push({
+      id: `ai_${Date.now()}`,
+      content: '',
+      isUser: false,
+      timestamp: Date.now(),
+    })
+    // 从响应式数组取回代理对象，后续直接改属性即可触发视图更新
+    liveMessage = messages.value[messages.value.length - 1] || null
+    scrollToBottom()
+  }
+
   let answer = ''
   let citedSourceIds: string[] = []
-  if (activeAIProvider.isConfigured()) {
+  let failureReason = ''
+  if (provider.isConfigured()) {
     requestController = new AbortController()
 
     try {
-      const response = await activeAIProvider.chat({
+      const response = await provider.chat({
         message,
         sources,
         history,
         signal: requestController.signal,
+        onToken: liveMessage
+          ? (token) => {
+              liveRaw += token
+              liveMessage.content = stripLiveCitations(liveRaw)
+              scrollToBottom()
+            }
+          : undefined,
       })
       answer = response.content
       citedSourceIds = response.citedSourceIds
       recordRequest()
     } catch (error) {
-      console.warn(`${activeAIProvider.label}调用失败:`, error)
+      console.warn(`${provider.label}调用失败:`, error)
+      failureReason = error instanceof Error ? error.message : ''
     } finally {
       requestController = null
     }
@@ -613,20 +815,38 @@ const sendMessage = async () => {
   // Provider 失败后降级到本地知识库，不伪造模型答案。
   if (!answer) {
     const hasLinks = relatedLinks.length > 0
-    answer = knowledgeStatus.value === 'error'
-      ? '🔍 知识库暂时无法加载，请稍后重试。'
-      : hasLinks
-      ? '🔍 当前AI服务暂不可用，以下是根据您的问题为您找到的相关页面：'
-      : '🔍 当前AI服务暂不可用，知识库中暂未找到相关页面。\n\n您可以尝试换个关键词，或直接浏览左侧菜单查找信息。'
+    if (knowledgeStatus.value === 'error') {
+      answer = '🔍 知识库暂时无法加载，请稍后重试。'
+    }
+    else if (chatMode.value === 'byow' && failureReason) {
+      // 直连模式给出具体原因（未登录 / 登录失效 / 上游改版等），并附上本地检索结果
+      answer = hasLinks
+        ? `🔍 本地直连暂时不可用：${failureReason}\n\n以下是根据您的问题为您找到的相关页面：`
+        : `🔍 本地直连暂时不可用：${failureReason}\n\n您可以换个关键词，或切换回校园网关模式再试。`
+    }
+    else {
+      answer = hasLinks
+        ? '🔍 当前AI服务暂不可用，以下是根据您的问题为您找到的相关页面：'
+        : '🔍 当前AI服务暂不可用，知识库中暂未找到相关页面。\n\n您可以尝试换个关键词，或直接浏览左侧菜单查找信息。'
+    }
   }
 
-  messages.value.push({
-    id: `${providerAnswered ? 'ai' : 'fallback'}_${Date.now()}`,
-    content: answer,
-    isUser: false,
-    timestamp: Date.now(),
-    links: relatedLinks.length > 0 ? relatedLinks : undefined,
-  })
+  if (liveMessage) {
+    liveMessage.content = answer
+    if (relatedLinks.length > 0)
+      liveMessage.links = relatedLinks
+    if (!providerAnswered)
+      liveMessage.id = `fallback_${Date.now()}`
+  }
+  else {
+    messages.value.push({
+      id: `${providerAnswered ? 'ai' : 'fallback'}_${Date.now()}`,
+      content: answer,
+      isUser: false,
+      timestamp: Date.now(),
+      links: relatedLinks.length > 0 ? relatedLinks : undefined,
+    })
+  }
 
   // 生成建议问题
   generateSuggestedQuestions(message, answer)
@@ -716,6 +936,8 @@ const formatTime = (timestamp: number) => {
 // 处理点击外部关闭
 const handleClickOutside = (event: Event) => {
   const target = event.target as HTMLElement
+  if (modeMenuOpen.value && !target.closest('.mode-select'))
+    modeMenuOpen.value = false
   if (isOpen.value && !target.closest('.ai-chat-container')) {
     // 可以在这里添加点击外部关闭的逻辑
   }
@@ -723,6 +945,7 @@ const handleClickOutside = (event: Event) => {
 
 onMounted(() => {
   quickQuestions.value = getRandomQuestions()
+  detectExtension()
   document.addEventListener('click', handleClickOutside)
 })
 
@@ -867,6 +1090,238 @@ onUnmounted(() => {
   background: var(--vp-c-bg-soft);
   color: var(--vp-c-text-1);
   transform: scale(1.05);
+}
+
+/* 本地直连推荐提示条 */
+.direct-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--vp-c-brand-1);
+  border-radius: 10px;
+  background: var(--vp-c-brand-soft);
+  animation: question-option-in 0.4s both;
+}
+
+.direct-hint-icon {
+  flex: 0 0 auto;
+  font-size: 18px;
+  color: var(--vp-c-brand-1);
+  margin-top: 1px;
+}
+
+.direct-hint-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.direct-hint-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--vp-c-text-1);
+}
+
+.direct-hint-desc {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--vp-c-text-2);
+}
+
+.direct-hint-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.direct-hint-switch {
+  border: none;
+  border-radius: 8px;
+  padding: 5px 10px;
+  background: var(--vp-c-brand-1);
+  color: white;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.direct-hint-switch:hover {
+  background: var(--vp-c-brand-2);
+}
+
+.direct-hint-close {
+  border: none;
+  background: transparent;
+  color: var(--vp-c-text-3);
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.direct-hint-close:hover {
+  background: var(--vp-c-bg-mute);
+  color: var(--vp-c-text-1);
+}
+
+/* 模式切换按钮：网关 / 本地直连 */
+.mode-select {
+  position: relative;
+}
+
+.mode-btn {
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--vp-c-divider);
+  background: var(--vp-c-bg-mute);
+  color: var(--vp-c-text-2);
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.mode-btn:hover {
+  border-color: var(--vp-c-brand-1);
+  color: var(--vp-c-brand-1);
+}
+
+.mode-btn.active {
+  background: var(--vp-c-brand-soft);
+  border-color: var(--vp-c-brand-1);
+  color: var(--vp-c-brand-1);
+}
+
+.mode-btn svg {
+  font-size: 14px;
+}
+
+.mode-caret {
+  transition: transform 0.2s ease;
+}
+
+.mode-caret.open {
+  transform: rotate(180deg);
+}
+
+/* 模式下拉菜单 */
+.mode-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 248px;
+  padding: 6px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+  background: var(--vp-c-bg);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.14);
+  z-index: 1100;
+}
+
+.mode-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--vp-c-text-1);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.mode-option:hover:not(:disabled) {
+  background: var(--vp-c-bg-soft);
+}
+
+.mode-option.selected {
+  background: var(--vp-c-brand-soft);
+}
+
+.mode-option:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.mode-option-icon {
+  flex: 0 0 auto;
+  font-size: 16px;
+  color: var(--vp-c-brand-1);
+}
+
+.mode-option-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.mode-option-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.mode-option-badge {
+  padding: 0 5px;
+  border-radius: 5px;
+  background: var(--vp-c-brand-soft);
+  color: var(--vp-c-brand-1);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.mode-option-desc {
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--vp-c-text-2);
+  line-height: 1.4;
+}
+
+.mode-option-check {
+  flex: 0 0 auto;
+  font-size: 16px;
+  color: var(--vp-c-brand-1);
+}
+
+.mode-menu-foot {
+  padding: 8px 10px 4px;
+  border-top: 1px solid var(--vp-c-divider);
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--vp-c-text-2);
+}
+
+.mode-menu-foot a {
+  color: var(--vp-c-brand-1);
+  text-decoration: none;
+}
+
+.mode-menu-enter-active,
+.mode-menu-leave-active {
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.mode-menu-enter-from,
+.mode-menu-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 
 /* 消息区域 */
@@ -1545,6 +2000,20 @@ onUnmounted(() => {
   .feedback-bubble {
     max-width: calc(100vw - 120px);
     white-space: normal;
+  }
+
+  /* 窄屏下模式按钮只留图标，避免标题栏溢出 */
+  .mode-btn span {
+    display: none;
+  }
+
+  .mode-btn {
+    padding: 0 9px;
+  }
+
+  /* 下拉菜单宽度跟随聊天窗，避免贴边溢出 */
+  .mode-menu {
+    width: min(248px, calc(100vw - 60px));
   }
 }
 

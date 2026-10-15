@@ -33,8 +33,11 @@ chat.deepseek.com / www.doubao.com（用户自己的账号）
   里的 `userToken`，写入 `chrome.storage.session`（仅本次浏览器会话内存，
   不落盘）→ 后台用它换短期 accessToken → 建会话 → 计算 PoW → 流式补全，
   结束后删除会话，不在用户账号里留下对话。
-- **豆包认证链路**：完全依赖浏览器已有 cookie（sessionid），查询串里的
-  `msToken` / `a_bogus` 用随机占位值即可。回答结束同样删除会话。
+- **豆包链路（页面驱动）**：豆包接口要求强校验的 `a_bogus` 签名（伪造会被
+  风控拦截，实测等长随机签名即触发滑块验证），因此不走接口：扩展打开一个
+  已登录豆包的后台标签页，`content-doubao.js` 把问题注入输入框（ProseMirror）、
+  监听回答节点（`data-testid` 选择器）并把文本增量流式读回。真实请求由豆包
+  页面自己签名发出，与人工使用完全一致；会话保留在该标签页的同一会话里。
 - **PoW（工作量证明）**：DeepSeek 网页版要求每条补全请求附带
   `X-Ds-PoW-Response`。算法为 DeepSeekHashV1（SHA3-256 海绵结构、只跑
   KECCAK-p[1600] 后 23 轮）：求 nonce 使
@@ -49,6 +52,7 @@ chat.deepseek.com / www.doubao.com（用户自己的账号）
 | `background.js` | 后台 SW：ping / 对话端口路由、流式转发 |
 | `content-bridge.js` | wiki 域名上的桥接脚本（postMessage ↔ 端口） |
 | `content-deepseek.js` | DeepSeek 登录页上的 userToken 上报脚本 |
+| `content-doubao.js` | 豆包页面驱动脚本（注入提问 / 读取流式回答） |
 | `src/deepseek-hash.js` | DeepSeekHashV1（keccak 23 轮）+ nonce 求解 |
 | `src/providers/deepseek.js` | DeepSeek 适配器 |
 | `src/providers/doubao.js` | 豆包适配器 |
@@ -75,9 +79,11 @@ chat.deepseek.com / www.doubao.com（用户自己的账号）
 - **DeepSeek「接口错误 40x / 未下发 PoW 挑战」**：客户端版本号变了。对照
   真实浏览器抓包更新 `src/providers/deepseek.js` 里的 `X-Client-Version`
   等请求头，以及响应里 `data.biz_data` 的取值路径。
-- **豆包「非流式响应」**：多半是接口路径或参数风控变化。更新
-  `src/providers/doubao.js` 顶部的 `VERSION_CODE` / `PC_VERSION`，或对比
-  官方网页最新抓包调整 body 结构。
+- **豆包注入失败 / 读不到回答**：豆包前端改版，选择器变了。对照
+  `content-doubao.js` 顶部的 `RECEIVE_SEL` / `SEND_SEL` / `TEXT_SEL` /
+  `ACTION_BAR_SEL` / `CHAT_INPUT_SEL` 五个常量，用 devtools 在豆包聊天页
+  核对新的 `data-testid` 后更新即可；发送失败时优先检查
+  「发送」按钮的兜底定位（`clickSendButton`）。
 - **回答为空或乱码**：上游改了 SSE 事件结构。检查各适配器文件底部的
   `consume*Stream` 函数与注释里记录的事件格式。
 

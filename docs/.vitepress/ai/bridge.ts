@@ -148,7 +148,11 @@ export function chatViaBridge(options: BridgeChatOptions): Promise<string> {
                 return
             }
             if (event.data.type === 'done') {
-                finish(cleanup, ({ resolve }) => resolve(buffer))
+                // 扩展可在 done 里携带最终正文（应对回答中途被上游重写等情况），优先采用
+                const finalContent = typeof event.data.content === 'string' && event.data.content.length > 0
+                    ? event.data.content
+                    : buffer
+                finish(cleanup, ({ resolve }) => resolve(finalContent))
                 return
             }
             if (event.data.type === 'error') {

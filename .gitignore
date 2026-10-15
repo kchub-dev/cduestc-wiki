@@ -1,5 +1,6 @@
 node_modules/
 __pycache__/
+.DS_Store
 docs/.vitepress/dist
 docs/.vitepress/cache
 docs/public/knowledge.[0-9a-f]*.json

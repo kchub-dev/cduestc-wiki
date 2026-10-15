@@ -17,13 +17,19 @@ import { readSSE } from '../sse.js'
 const BASE_URL = 'https://chat.deepseek.com'
 const API_BASE = `${BASE_URL}/api/v0`
 
+// DeepSeek 通道标签页：userToken 由该页面的 content 脚本上报（storage.session）。
+// 凭证缺失时自动在后台打开/刷新这个页面，省去「手动打开一次」的步骤。
+const DS_CHANNEL_TAB_URL = `${BASE_URL}/`
+const DS_CHANNEL_TAB_KEY = 'dsChannelTabId'
+const DS_CHANNEL_WAIT_MS = 15000
+
 // 与真实网页客户端一致的基本请求头（见官方 2.0.0 web build 抓包）。
 // Cookie / UA / Origin 由浏览器自动附带，不在这里伪造。
 const BASE_HEADERS = {
     'Accept': '*/*',
     'X-Client-Bundle-Id': 'com.deepseek.chat',
     'X-Client-Platform': 'web',
-    'X-Client-Version': '2.0.0',
+    'X-Client-Version': '2.5.0',
 }
 
 // userToken -> accessToken 缓存（accessToken 有效期约 1 小时）
@@ -57,8 +63,12 @@ function pickBizData(payload) {
     return payload?.data?.biz_data ?? payload?.biz_data
 }
 
-/** 读取浏览器里的 userToken：优先 storage.session（content 脚本上报），兜底 cookie。 */
-async function getUserToken() {
+/**
+ * 读取浏览器里的 userToken：优先 storage.session（content 脚本上报）。
+ * skipCookie=true 时跳过 cookie 兜底——未登录时 DeepSeek 也会下发匿名
+ * userToken cookie，拿它调接口只会得到 40003，不如直接引导登录。
+ */
+async function getUserToken({ skipCookie = false } = {}) {
     try {
         const stored = await chrome.storage.session.get('dsUserToken')
         if (stored?.dsUserToken)
@@ -67,6 +77,9 @@ async function getUserToken() {
     catch {
         // storage.session 不可用时走 cookie 兜底
     }
+
+    if (skipCookie)
+        return null
 
     try {
         const cookie = await chrome.cookies.get({ url: BASE_URL, name: 'userToken' })
@@ -92,15 +105,86 @@ function normalizeUserToken(raw) {
     return raw
 }
 
+async function openChannelTabAndWaitForToken() {
+    let tabId = null
+    try {
+        const stored = await chrome.storage.session.get(DS_CHANNEL_TAB_KEY)
+        if (typeof stored?.[DS_CHANNEL_TAB_KEY] === 'number')
+            tabId = stored[DS_CHANNEL_TAB_KEY]
+    }
+    catch {
+        // storage.session 不可用时只开不记
+    }
+
+    if (tabId !== null) {
+        try {
+            await chrome.tabs.get(tabId)
+            // 标签页还开着：刷新一次，让上报脚本重新读取最新登录态
+            try {
+                await chrome.tabs.reload(tabId)
+            }
+            catch {
+                // 刷新失败不阻塞主流程
+            }
+        }
+        catch {
+            tabId = null
+        }
+    }
+
+    if (tabId === null) {
+        try {
+            const tab = await chrome.tabs.create({ url: DS_CHANNEL_TAB_URL, active: false })
+            tabId = tab.id
+            try {
+                await chrome.storage.session.set({ [DS_CHANNEL_TAB_KEY]: tabId })
+            }
+            catch {
+                // 记不住就算了
+            }
+        }
+        catch {
+            return // 标签页打不开，直接走报错
+        }
+    }
+
+    const start = Date.now()
+    while (Date.now() - start < DS_CHANNEL_WAIT_MS) {
+        try {
+            const stored = await chrome.storage.session.get('dsUserToken')
+            if (stored?.dsUserToken)
+                return
+        }
+        catch {
+            return
+        }
+        await new Promise(resolve => setTimeout(resolve, 500))
+    }
+}
+
 async function getAccessToken(signal) {
     if (cachedAccessToken && Date.now() < cachedAccessTokenExpireAt)
         return cachedAccessToken
 
-    const userToken = await getUserToken()
+    let userToken = await getUserToken()
+    if (!userToken) {
+        await openChannelTabAndWaitForToken()
+        // 等待后只认页面上报的凭证：cookie 里的可能是匿名 token
+        userToken = await getUserToken({ skipCookie: true })
+    }
     if (!userToken)
-        throw new Error('未找到 DeepSeek 登录凭证，请先在当前浏览器登录 chat.deepseek.com（登录后打开任意一次 DeepSeek 页面即可）')
+        throw new Error('未找到 DeepSeek 登录凭证：已在后台打开 DeepSeek 页面，请在该页面登录后重试')
 
-    const payload = await fetchJSON('/users/current', { accessToken: userToken, signal })
+    let payload
+    try {
+        payload = await fetchJSON('/users/current', { accessToken: userToken, signal })
+    }
+    catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        if (reason.includes('40003') || /authorization/i.test(reason))
+            throw new Error('DeepSeek 登录凭证无效或已失效：请在 DeepSeek 页面重新登录后重试')
+        throw error
+    }
     const token = pickBizData(payload)?.token
     if (!token)
         throw new Error('DeepSeek 未返回 accessToken，请重新登录后重试')
@@ -180,7 +264,8 @@ export async function deepseekChat({ messages, thinking = false, onDelta, signal
     const accessToken = await getAccessToken(signal)
     const sessionId = await createChatSession(accessToken, signal)
 
-    try {
+    // 一次补全尝试：新建 PoW 挑战 → 请求补全 → 解析流
+    const attemptCompletion = async () => {
         const challenge = await requestPowChallenge(accessToken, signal)
         const powHeader = buildPowHeader(challenge)
 
@@ -222,17 +307,44 @@ export async function deepseekChat({ messages, thinking = false, onDelta, signal
 
         return await consumeCompletionStream(response, onDelta)
     }
+
+    try {
+        try {
+            return await attemptCompletion()
+        }
+        catch (error) {
+            // 服务器繁忙（backend_err）是间歇性的：稍等后用新挑战自动重试一次
+            if (!/服务器繁忙/.test(error?.message || '') || signal?.aborted)
+                throw error
+            await new Promise(resolve => setTimeout(resolve, 2500))
+            if (signal?.aborted)
+                throw new Error('本地直连请求已取消')
+            return await attemptCompletion()
+        }
+    }
     finally {
         deleteChatSession(accessToken, sessionId)
     }
 }
 
-// SSE 片段格式：data: {"p":"response/fragments","o":"APPEND","v":[{type,content}]}
-// THINK 片段是思考过程（忽略），ANSWER / RESPONSE 是正文。
+// SSE 有两种形态：
+// 旧版：data: {"p":"response/fragments","o":"APPEND","v":[{type,content}]}（正文在 ANSWER/RESPONSE 片段，
+//       另有 {"p":"response/thinking_content","v":"..."} 之类的字符串增量）
+// 新版：命名事件（event: ready / hint / close），hint 携带 {type:"error", content, finish_reason}；
+//       服务端繁忙时整个流只有 ready + hint(backend_err) + close，没有任何正文。
 async function consumeCompletionStream(response, onDelta) {
     let content = ''
+    let streamError = ''
+    let sawClose = false
 
-    await readSSE(response, (payload) => {
+    const appendDelta = (text) => {
+        if (typeof text !== 'string' || !text)
+            return
+        content += text
+        onDelta?.(text)
+    }
+
+    await readSSE(response, (payload, eventName) => {
         if (payload === '[DONE]')
             return
         let data
@@ -247,6 +359,27 @@ async function consumeCompletionStream(response, onDelta) {
             throw new Error(['DeepSeek 回答失败', data.code, detail].join(': '))
         }
 
+        // 新版命名事件
+        if (eventName === 'hint') {
+            if (data?.type === 'error') {
+                const detail = data.content || '未知错误'
+                const busy = data.finish_reason === 'backend_err'
+                    || detail.includes('暂时不可用')
+                    || /temporarily/i.test(detail)
+                streamError = busy
+                    ? 'DeepSeek 服务器繁忙（暂时不可用），已自动重试仍失败，请稍后再试或切换豆包直连 / 校园网关'
+                    : ['DeepSeek 回答失败', detail].filter(Boolean).join('：')
+            }
+            return
+        }
+        if (eventName === 'close') {
+            sawClose = true
+            return
+        }
+        if (eventName === 'ready')
+            return
+
+        // 旧版补丁格式
         const { p, v } = data
         if (p === 'response/fragments' && v) {
             const fragments = Array.isArray(v) ? v : [v]
@@ -259,18 +392,15 @@ async function consumeCompletionStream(response, onDelta) {
             return
         }
         // 其余形如 {"p":"response/thinking_content","o":"APPEND","v":"..."} 的
-        // 字符串增量：思考内容不展示，正文增量透传。
-        if (typeof v === 'string' && !String(p || '').includes('thinking'))
+        // 字符串增量：思考内容与结束标记不展示，正文增量透传。
+        if (typeof v === 'string' && !/thinking|finish_reason|status/.test(String(p || '')))
             appendDelta(v)
     })
 
-    function appendDelta(text) {
-        if (typeof text !== 'string' || !text)
-            return
-        content += text
-        onDelta?.(text)
-    }
-
+    if (streamError)
+        throw new Error(streamError)
+    if (!content && sawClose)
+        throw new Error('DeepSeek 没有返回内容（服务器繁忙），请稍后重试')
     return content
 }
 
@@ -284,7 +414,7 @@ export const deepseekProvider = {
             ok: Boolean(token),
             message: token
                 ? '已登录'
-                : '未找到登录凭证：请先登录 chat.deepseek.com（登录后打开一次它的页面即可）',
+                : '未找到登录凭证：提问时扩展会自动打开 DeepSeek 页面，在该页面登录即可',
         }
     },
 }

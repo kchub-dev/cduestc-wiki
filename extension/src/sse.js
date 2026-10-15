@@ -3,7 +3,8 @@
 
 /**
  * @param {Response} response
- * @param {(payload: string) => void} onData 每个 data: 事件的文本载荷
+ * @param {(payload: string, eventName: string) => void} onData 每个 data: 事件的文本载荷
+ *        （eventName 是配对的 `event:` 行值，没有该行时为 ''）
  * @param {() => void} [onEnd] 流自然结束时的回调
  */
 export async function readSSE(response, onData, onEnd) {
@@ -13,6 +14,7 @@ export async function readSSE(response, onData, onEnd) {
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
+    let eventName = ''
     let done = false
 
     try {
@@ -23,14 +25,19 @@ export async function readSSE(response, onData, onEnd) {
             const lines = buffer.split(/\r?\n/)
             buffer = lines.pop() || ''
             for (const line of lines) {
+                if (line.startsWith('event:')) {
+                    eventName = line.slice(6).trim()
+                    continue
+                }
                 if (!line.startsWith('data:'))
                     continue
-                onData(line.slice(5).trimStart())
+                onData(line.slice(5).trimStart(), eventName)
+                eventName = ''
             }
         }
         // 处理结尾没有换行的残留行
         if (buffer.startsWith('data:'))
-            onData(buffer.slice(5).trimStart())
+            onData(buffer.slice(5).trimStart(), eventName)
     }
     finally {
         reader.cancel().catch(() => {})

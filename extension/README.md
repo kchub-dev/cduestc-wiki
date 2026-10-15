@@ -51,7 +51,7 @@ chat.deepseek.com / www.doubao.com（用户自己的账号）
 | `manifest.json` | MV3 清单：权限、host、脚本注册 |
 | `background.js` | 后台 SW：ping / 对话端口路由、流式转发 |
 | `content-bridge.js` | wiki 域名上的桥接脚本（postMessage ↔ 端口） |
-| `content-deepseek.js` | DeepSeek 登录页上的 userToken 上报脚本 |
+| `content-deepseek.js` | DeepSeek 通道页脚本（登录凭证上报 + 周期补报） |
 | `content-doubao.js` | 豆包页面驱动脚本（注入提问 / 读取流式回答） |
 | `src/deepseek-hash.js` | DeepSeekHashV1（keccak 23 轮）+ nonce 求解 |
 | `src/providers/deepseek.js` | DeepSeek 适配器 |
@@ -77,8 +77,13 @@ chat.deepseek.com / www.doubao.com（用户自己的账号）
   `chrome://extensions` 里扩展是否被浏览器禁用。
 - **HTTP 401/403**：登录过期，重新登录即可。
 - **DeepSeek「接口错误 40x / 未下发 PoW 挑战」**：客户端版本号变了。对照
-  真实浏览器抓包更新 `src/providers/deepseek.js` 里的 `X-Client-Version`
-  等请求头，以及响应里 `data.biz_data` 的取值路径。
+  真实浏览器抓包更新 `src/providers/deepseek.js` 里 `BASE_HEADERS` 的
+  `X-Client-Version`（2026-10 为 2.5.0）等请求头，以及响应里 `data.biz_data`
+  的取值路径。
+- **DeepSeek 回答流解析**：现支持两种形态——旧版 `data: {p,v}` 补丁
+  （正文在 `response/fragments` 的 ANSWER 片段），新版命名事件
+  （`hint` 为服务端错误、`close` 结束）。服务端繁忙时整个流只有
+  ready + hint(backend_err) + close，适配器会自动重试一次并人话报错。
 - **豆包注入失败 / 读不到回答**：豆包前端改版，选择器变了。对照
   `content-doubao.js` 顶部的 `RECEIVE_SEL` / `SEND_SEL` / `TEXT_SEL` /
   `ACTION_BAR_SEL` / `CHAT_INPUT_SEL` 五个常量，用 devtools 在豆包聊天页

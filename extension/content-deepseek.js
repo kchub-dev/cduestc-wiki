@@ -43,4 +43,17 @@
     // 后台 service worker 重启后存储仍在；但如果用户刚登录，页面内 token
     // 变化时再报一次。监听 storage 事件即可覆盖大部分场景。
     window.addEventListener('storage', report)
+
+    // 登录往往发生在通道标签页自己内部（同页 localStorage 变化不会触发
+    // storage 事件），所以周期比对一次，值有变化才上报。
+    setInterval(() => {
+        try {
+            const token = readUserToken()
+            chrome.storage.session.get('dsUserToken').then((stored) => {
+                if ((stored?.dsUserToken || '') !== token)
+                    report()
+            }).catch(() => {})
+        }
+        catch {}
+    }, 3000)
 })()

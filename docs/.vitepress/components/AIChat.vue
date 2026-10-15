@@ -551,13 +551,15 @@ const toggleChat = async () => {
   }
 }
 
-// 频率限制：每30秒最多1次
+// 频率限制：仅网关模式每30秒最多1次；本地直连走用户自己的账号，不限频
 const RATE_LIMIT_KEY = 'ai_chat_last_request'
 const RATE_LIMIT_SECONDS = 30
 const cooldownLeft = ref(0)
 let cooldownTimer: ReturnType<typeof setInterval> | null = null
 
 const checkRateLimit = (): boolean => {
+  if (chatMode.value === 'byow')
+    return true
   const last = localStorage.getItem(RATE_LIMIT_KEY)
   if (!last) return true
   const elapsed = (Date.now() - parseInt(last)) / 1000
@@ -568,6 +570,8 @@ const checkRateLimit = (): boolean => {
 }
 
 const recordRequest = () => {
+  if (chatMode.value === 'byow')
+    return
   localStorage.setItem(RATE_LIMIT_KEY, Date.now().toString())
   cooldownLeft.value = RATE_LIMIT_SECONDS
   startCooldownTimer()

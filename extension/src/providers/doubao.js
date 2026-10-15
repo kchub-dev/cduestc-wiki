@@ -13,6 +13,7 @@ import { flattenOpenAIMessages } from '../sse.js'
 
 const RUN_TAB_URL = 'https://www.doubao.com/chat/'
 const RUN_TAB_KEY = 'doubaoRunTabId'
+const RUN_WINDOW_KEY = 'doubaoRunWindowId'
 const RUN_TIMEOUT_MS = 4 * 60 * 1000
 
 async function pingTab(tabId) {
@@ -37,6 +38,131 @@ async function waitForTabReady(tabId, timeoutMs = 15000) {
     return null
 }
 
+/**
+ * 在「隐藏的最小化窗口」里创建通道页（Windows / Linux 有效）。
+ * macOS 上 Edge 会忽略程序化最小化——这里验证状态，不成立就撤掉窗口改用后台标签。
+ */
+async function createChannelWindow(url, tabKey, windowKey) {
+    let windowId = null
+    try {
+        const stored = await chrome.storage.session.get(windowKey)
+        if (typeof stored?.[windowKey] === 'number')
+            windowId = stored[windowKey]
+    }
+    catch {
+        // storage.session 不可用时忽略
+    }
+
+    if (windowId !== null) {
+        try {
+            const existing = await chrome.windows.get(windowId, { populate: true })
+            const tab = await chrome.tabs.create({ url, active: false, windowId: existing.id })
+            try {
+                await chrome.storage.session.set({ [tabKey]: tab.id })
+            }
+            catch {}
+            return tab.id
+        }
+        catch {
+            // 窗口已被关闭，走新建
+        }
+    }
+
+    const win = await chrome.windows.create({ url, state: 'minimized', focused: false })
+    try {
+        const current = await chrome.windows.get(win.id)
+        if (current.state !== 'minimized') {
+            // 平台忽略最小化（macOS）：撤掉窗口，让调用方走后台标签方案
+            await chrome.windows.remove(win.id)
+            throw new Error('minimize-unsupported')
+        }
+    }
+    catch (error) {
+        if (String(error).includes('minimize-unsupported'))
+            throw error
+        // 校验失败同样撤掉，避免留下可见窗口
+        try {
+            await chrome.windows.remove(win.id)
+        }
+        catch {}
+        throw new Error('minimize-unsupported')
+    }
+
+    let tab = win.tabs?.[0]
+    if (!tab) {
+        const populated = await chrome.windows.get(win.id, { populate: true })
+        tab = populated.tabs?.[0]
+    }
+    try {
+        await chrome.storage.session.set({ [windowKey]: win.id, [tabKey]: tab.id })
+    }
+    catch {}
+    return tab.id
+}
+
+/**
+ * 平台自适应创建通道页：
+ * - Windows / Linux：隐藏的最小化窗口（用户完全无感）
+ * - macOS：后台 + 钉住的小标签（不抢焦点、只在标签栏最左侧占一个图标位）
+ */
+async function createChannelTab(url, tabKey, windowKey) {
+    let os = ''
+    try {
+        os = (await chrome.runtime.getPlatformInfo()).os
+    }
+    catch {
+        // 取不到平台信息按需要最小化的平台处理（失败会自动退标签）
+    }
+
+    if (os !== 'mac') {
+        try {
+            return await createChannelWindow(url, tabKey, windowKey)
+        }
+        catch {
+            // 最小化不可用：退回标签方案
+        }
+    }
+
+    const target = await chrome.windows.getLastFocused().catch(() => null)
+    const tab = await chrome.tabs.create({
+        url,
+        active: false,
+        pinned: true,
+        ...(target ? { windowId: target.id } : {}),
+    })
+    try {
+        await chrome.storage.session.set({ [tabKey]: tab.id })
+    }
+    catch {}
+    return tab.id
+}
+
+/** 把通道亮出来（只在需要用户登录等必须介入的场景调用） */
+async function surfaceChannelWindow(tabId) {
+    try {
+        await chrome.tabs.update(tabId, { active: true })
+    }
+    catch {}
+    try {
+        const tab = await chrome.tabs.get(tabId)
+        if (typeof tab.windowId === 'number')
+            await chrome.windows.update(tab.windowId, { focused: true })
+    }
+    catch {
+        // 窗口不存在就算了
+    }
+}
+
+async function isDoubaoLoggedIn() {
+    try {
+        const cookie = await chrome.cookies.get({ url: 'https://www.doubao.com', name: 'sessionid' })
+        return Boolean(cookie?.value)
+    }
+    catch {
+        return true // 读不到 cookie 就不拦，让运行时报错兜底
+    }
+}
+
 async function ensureRunTab() {
     let tabId = null
     try {
@@ -51,34 +177,35 @@ async function ensureRunTab() {
     if (tabId !== null) {
         try {
             await chrome.tabs.get(tabId)
-            const info = await waitForTabReady(tabId, 3000)
+            let info = await pingTab(tabId)
+            if (!info) {
+                // 可能是被挂起/冻结的隐藏页：刷新一次唤醒
+                try {
+                    await chrome.tabs.reload(tabId)
+                    info = await waitForTabReady(tabId, 10000)
+                }
+                catch {
+                    info = null
+                }
+            }
             if (info) {
-                // 标签页被用户导航到别处时拉回聊天页（不影响其它页面使用）
+                // 通道页被导航到别处时拉回聊天页
                 if (!info.url.includes('/chat')) {
                     await chrome.tabs.update(tabId, { url: RUN_TAB_URL })
                     await waitForTabReady(tabId)
                 }
                 return tabId
             }
-            // 页面存在但内容脚本未就绪（加载中）：给它多一点时间
-            const late = await waitForTabReady(tabId, 8000)
-            if (late)
-                return tabId
+            tabId = null
         }
         catch {
             // 标签页已被关闭，走重建
         }
     }
 
-    const tab = await chrome.tabs.create({ url: RUN_TAB_URL, active: false })
-    try {
-        await chrome.storage.session.set({ [RUN_TAB_KEY]: tab.id })
-    }
-    catch {
-        // 记不住也没关系，下次再建
-    }
-    await waitForTabReady(tab.id)
-    return tab.id
+    tabId = await createChannelTab(RUN_TAB_URL, RUN_TAB_KEY, RUN_WINDOW_KEY)
+    await waitForTabReady(tabId)
+    return tabId
 }
 
 /**
@@ -92,6 +219,11 @@ async function ensureRunTab() {
 export async function doubaoChat({ messages, onDelta, signal }) {
     const prompt = flattenOpenAIMessages(messages)
     const tabId = await ensureRunTab()
+    // 未登录时把隐藏的通道窗口亮出来引导登录（否则用户不知道去哪里登录）
+    if (!(await isDoubaoLoggedIn())) {
+        await surfaceChannelWindow(tabId)
+        throw new Error('豆包未登录：已为你打开豆包页面，登录一次后重试即可')
+    }
 
     return await new Promise((resolve, reject) => {
         let settled = false

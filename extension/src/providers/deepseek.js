@@ -17,10 +17,9 @@ import { readSSE } from '../sse.js'
 const BASE_URL = 'https://chat.deepseek.com'
 const API_BASE = `${BASE_URL}/api/v0`
 
-// DeepSeek 通道标签页：userToken 由该页面的 content 脚本上报（storage.session）。
-// 凭证缺失时自动在后台打开/刷新这个页面，省去「手动打开一次」的步骤。
+// DeepSeek 通道页：userToken 由该页面的 content 脚本上报（storage.session）。
+// 凭证缺失时在隐藏的最小化窗口里静默打开一次，拿到凭证后立即关闭窗口。
 const DS_CHANNEL_TAB_URL = `${BASE_URL}/`
-const DS_CHANNEL_TAB_KEY = 'dsChannelTabId'
 const DS_CHANNEL_WAIT_MS = 15000
 
 // 与真实网页客户端一致的基本请求头（见官方 2.0.0 web build 抓包）。
@@ -105,46 +104,53 @@ function normalizeUserToken(raw) {
     return raw
 }
 
+/**
+ * 静默获取登录凭证：在隐藏容器里打开一次 DeepSeek 页面，
+ * 由页面脚本上报 userToken。拿到后立即关闭（用户几乎无感）；
+ * 若迟迟拿不到（大概率未登录），把页面亮出来引导用户登录。
+ *
+ * 容器按平台选择：Windows / Linux 用最小化窗口（完全无感）；
+ * macOS 上 Edge 忽略程序化最小化，退回后台标签（不抢焦点，用完即关）。
+ */
 async function openChannelTabAndWaitForToken() {
-    let tabId = null
+    let os = ''
     try {
-        const stored = await chrome.storage.session.get(DS_CHANNEL_TAB_KEY)
-        if (typeof stored?.[DS_CHANNEL_TAB_KEY] === 'number')
-            tabId = stored[DS_CHANNEL_TAB_KEY]
+        os = (await chrome.runtime.getPlatformInfo()).os
     }
-    catch {
-        // storage.session 不可用时只开不记
+    catch {}
+
+    let close = null
+    let surface = null
+
+    if (os !== 'mac') {
+        try {
+            const win = await chrome.windows.create({ url: DS_CHANNEL_TAB_URL, state: 'minimized', focused: false })
+            const state = (await chrome.windows.get(win.id)).state
+            if (state === 'minimized') {
+                close = () => chrome.windows.remove(win.id).catch(() => {})
+                surface = () => chrome.windows.update(win.id, { state: 'normal', focused: true }).catch(() => {})
+            }
+            else {
+                // 平台不支持最小化：撤掉窗口，走标签方案
+                await chrome.windows.remove(win.id).catch(() => {})
+            }
+        }
+        catch {}
     }
 
-    if (tabId !== null) {
+    if (!close) {
         try {
-            await chrome.tabs.get(tabId)
-            // 标签页还开着：刷新一次，让上报脚本重新读取最新登录态
-            try {
-                await chrome.tabs.reload(tabId)
-            }
-            catch {
-                // 刷新失败不阻塞主流程
-            }
+            const target = await chrome.windows.getLastFocused().catch(() => null)
+            const tab = await chrome.tabs.create({
+                url: DS_CHANNEL_TAB_URL,
+                active: false,
+                ...(target ? { windowId: target.id } : {}),
+            })
+            close = () => chrome.tabs.remove(tab.id).catch(() => {})
+            surface = () => chrome.tabs.update(tab.id, { active: true }).catch(() => {})
         }
         catch {
-            tabId = null
-        }
-    }
-
-    if (tabId === null) {
-        try {
-            const tab = await chrome.tabs.create({ url: DS_CHANNEL_TAB_URL, active: false })
-            tabId = tab.id
-            try {
-                await chrome.storage.session.set({ [DS_CHANNEL_TAB_KEY]: tabId })
-            }
-            catch {
-                // 记不住就算了
-            }
-        }
-        catch {
-            return // 标签页打不开，直接走报错
+            return // 容器都建不出来就只能走报错
         }
     }
 
@@ -152,14 +158,20 @@ async function openChannelTabAndWaitForToken() {
     while (Date.now() - start < DS_CHANNEL_WAIT_MS) {
         try {
             const stored = await chrome.storage.session.get('dsUserToken')
-            if (stored?.dsUserToken)
+            if (stored?.dsUserToken) {
+                // 拿到凭证：静默收场
+                close()
                 return
+            }
         }
         catch {
-            return
+            break
         }
         await new Promise(resolve => setTimeout(resolve, 500))
     }
+
+    // 超时（大概率未登录）：亮出来引导登录，不再自动关闭
+    surface?.()
 }
 
 async function getAccessToken(signal) {

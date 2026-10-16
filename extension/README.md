@@ -59,6 +59,17 @@ chat.deepseek.com / www.doubao.com（用户自己的账号）
 | `src/sse.js` | SSE 流读取 + 消息压平工具 |
 | `popup.html` / `popup.js` | 弹窗：默认上游、深度思考开关、登录状态 |
 | `tools/gen-icons.mjs` | 图标生成脚本（纯 Node，无依赖） |
+| `offscreen.html` / `offscreen-pow.js` | 隐藏计算页：承担 DeepSeek PoW 求解等 CPU 密集任务 |
+
+## 两个关键实现约束（改代码前务必了解）
+
+- **DeepSeek PoW 必须放在 offscreen 文档里算**：MV3 Service Worker 线程被浏览器
+  大幅降频（实测同样计算比普通页面线程慢约 300 倍），PoW 在 SW 里求解要几十秒，
+  在 offscreen 文档里不到一秒。若 offscreen 创建失败会自动退回 SW 内求解（慢但可用）。
+- **对话端口有保活心跳**：`background.js` 对每个 `chat:` 端口每 20 秒发一次 keepalive，
+  防止长流程（附件上传、PoW）期间 SW 因空闲被挂起、导致首个外联请求挂满 60 秒。
+- **页面握手不经过 SW**：`content-bridge.js` 直接读 storage 应答 ping，避免 SW 冷启动
+  延迟让页面误判「扩展未安装」（bridge.ts 另有 3 轮重试兜底）。
 
 ## 发布打包
 

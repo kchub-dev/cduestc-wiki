@@ -80,15 +80,58 @@ function clickSendButton() {
     return false
 }
 
-function startRun(prompt, port) {
+// 用 DataTransfer 把附件注入豆包隐藏的文件输入框，
+// 之后的 prepare_upload / TOS 上传都由豆包页面自己签名完成。
+function injectAttachments(attachments) {
+    const input = document.querySelector('input[type="file"]')
+    if (!input)
+        return false
+    const transfer = new DataTransfer()
+    for (const item of attachments) {
+        try {
+            const binary = atob(item.data || '')
+            const bytes = new Uint8Array(binary.length)
+            for (let index = 0; index < binary.length; index++)
+                bytes[index] = binary.charCodeAt(index)
+            transfer.items.add(new File([bytes], item.name || 'attachment', { type: item.mime || 'application/octet-stream' }))
+        }
+        catch {
+            // 单个附件解码失败则跳过
+        }
+    }
+    if (!transfer.items.length)
+        return false
+    input.files = transfer.files
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+    return true
+}
+
+// 附件是否已经出现在输入区（缩略图或文件名芯片）
+function attachmentsVisible(names) {
+    const area = document.querySelector(CHAT_INPUT_SEL)?.closest('div')?.parentElement || document.body
+    try {
+        if (area.querySelector('img[src^="blob:"]'))
+            return true
+        const text = area.textContent || ''
+        return names.some(name => name && text.includes(name))
+    }
+    catch {
+        return false
+    }
+}
+
+function startRun(prompt, port, attachments = []) {
     if (session) {
         port.postMessage({ type: 'error', message: '豆包的上一轮回答还没有结束，请稍候重试' })
         return
     }
 
+    const attachmentList = Array.isArray(attachments) ? attachments.slice(0, 3) : []
     const state = {
         port,
         prompt,
+        attachmentList,
+        attachmentNames: attachmentList.map(item => item.name).filter(Boolean),
         phase: 'wait-composer',
         startedAt: Date.now(),
         phaseAt: Date.now(),
@@ -136,6 +179,16 @@ function startRun(prompt, port) {
             }
             state.sentBefore = document.querySelectorAll(SEND_SEL).length
             state.recvBefore = document.querySelectorAll(RECEIVE_SEL).length
+            if (state.attachmentList.length) {
+                // 先注入附件，等豆包自己上传完成再发送
+                if (!injectAttachments(state.attachmentList)) {
+                    finishError('无法向豆包添加附件，请重试或在豆包标签页手动刷新后再次提问')
+                    return
+                }
+                state.phase = 'wait-upload'
+                state.phaseAt = Date.now()
+                return
+            }
             if (!insertPrompt(composer, prompt)) {
                 finishError('无法写入豆包输入框，请在豆包标签页刷新后重试')
                 return
@@ -143,6 +196,26 @@ function startRun(prompt, port) {
             triggerEnter(composer)
             state.phase = 'confirm-send'
             state.phaseAt = Date.now()
+            return
+        }
+        if (state.phase === 'wait-upload') {
+            // 附件出现（缩略图/文件名）或超时兜底后，继续写入问题并发送
+            if (attachmentsVisible(state.attachmentNames) || elapsed > 6000) {
+                const composer = findComposer()
+                if (!composer) {
+                    finishError('豆包页面未就绪：找不到输入框')
+                    return
+                }
+                state.sentBefore = document.querySelectorAll(SEND_SEL).length
+                state.recvBefore = document.querySelectorAll(RECEIVE_SEL).length
+                if (!insertPrompt(composer, prompt)) {
+                    finishError('无法写入豆包输入框，请在豆包标签页刷新后重试')
+                    return
+                }
+                triggerEnter(composer)
+                state.phase = 'confirm-send'
+                state.phaseAt = Date.now()
+            }
             return
         }
         if (state.phase === 'confirm-send') {
@@ -241,7 +314,7 @@ chrome.runtime.onConnect.addListener((port) => {
         return
     port.onMessage.addListener((message) => {
         if (message?.type === 'run' && typeof message.prompt === 'string') {
-            startRun(message.prompt, port)
+            startRun(message.prompt, port, message.attachments)
         }
         else if (message?.type === 'poke') {
             session?.tick?.()

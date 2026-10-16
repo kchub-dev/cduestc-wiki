@@ -212,11 +212,12 @@ async function ensureRunTab() {
  * 发起一次对话补全（页面驱动）。
  * @param {object} options
  * @param {Array<{role: string, content: string}>} options.messages OpenAI 风格消息
+ * @param {Array<{name: string, mime: string, data: string}>} [options.attachments] 附件（base64，最多 3 个）
  * @param {(text: string) => void} [options.onDelta] 正文增量回调
  * @param {AbortSignal} [options.signal]
  * @returns {Promise<string>} 完整正文
  */
-export async function doubaoChat({ messages, onDelta, signal }) {
+export async function doubaoChat({ messages, attachments = [], onDelta, signal }) {
     const prompt = flattenOpenAIMessages(messages)
     const tabId = await ensureRunTab()
     // 未登录时把隐藏的通道窗口亮出来引导登录（否则用户不知道去哪里登录）
@@ -306,7 +307,7 @@ export async function doubaoChat({ messages, onDelta, signal }) {
             }
         }, 800)
 
-        port.postMessage({ type: 'run', prompt })
+        port.postMessage({ type: 'run', prompt, attachments: Array.isArray(attachments) ? attachments.slice(0, 3) : [] })
     })
 }
 

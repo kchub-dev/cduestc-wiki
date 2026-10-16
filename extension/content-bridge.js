@@ -5,6 +5,9 @@
 
 (async () => {
     const NS = 'kcos-wiki-ai-bridge/v1'
+    // 与 src/constants.js 和 manifest 保持同步（仅用于握手展示）
+    const BRIDGE_VERSION = '0.2.3'
+    const PROVIDER_IDS = ['deepseek', 'doubao']
 
     // 防止重复执行（扩展更新重载时脚本可能再次运行）
     if (window.__kcosAiBridgeInstalled)
@@ -26,25 +29,45 @@
             return
 
         if (data.type === 'ping' && typeof data.nonce === 'string') {
+            // 握手直接由内容脚本应答、不经过后台 SW：MV3 Service Worker 冷启动
+            // 可能慢到让页面误判「扩展未安装」。内容脚本本身在运行就证明扩展已装，
+            // 设置从 storage 读取（浏览器进程级 API，无冷启动问题）。
             try {
-                const info = await chrome.runtime.sendMessage({ type: 'ping' })
-                reply('pong', { nonce: data.nonce, payload: info || null })
+                const stored = await chrome.storage.local.get(['provider', 'thinking'])
+                reply('pong', {
+                    nonce: data.nonce,
+                    payload: {
+                        version: BRIDGE_VERSION,
+                        providers: PROVIDER_IDS,
+                        provider: typeof stored?.provider === 'string' ? stored.provider : 'deepseek',
+                        thinking: stored?.thinking === true,
+                    },
+                })
             }
             catch {
-                // 扩展上下文失效（刚更新 / 重载）时按不可用处理
-                reply('pong', { nonce: data.nonce, payload: null })
+                // storage 不可用时也回复，至少让页面知道扩展存在
+                reply('pong', {
+                    nonce: data.nonce,
+                    payload: { version: BRIDGE_VERSION, providers: PROVIDER_IDS, provider: 'deepseek', thinking: false },
+                })
             }
             return
         }
 
         if (data.type === 'set-provider' && typeof data.id === 'string') {
-            // 页面在「直连」模式下切换上游（豆包 / DeepSeek）
+            // 页面在「直连」模式下切换上游（豆包 / DeepSeek）。
+            // 与 ping 同理：直接写 storage，不经后台 SW（冷启动延迟会让页面误报「扩展未响应」）
+            const requested = typeof data.provider === 'string' ? data.provider : ''
+            if (!PROVIDER_IDS.includes(requested)) {
+                reply('provider-changed', { id: data.id, ok: false, message: '未知上游' })
+                return
+            }
             try {
-                const result = await chrome.runtime.sendMessage({ type: 'set-provider', provider: data.provider })
-                reply('provider-changed', { id: data.id, ok: result?.ok === true, provider: result?.provider, message: result?.message })
+                await chrome.storage.local.set({ provider: requested })
+                reply('provider-changed', { id: data.id, ok: true, provider: requested })
             }
             catch {
-                reply('provider-changed', { id: data.id, ok: false, message: '扩展后台不可用' })
+                reply('provider-changed', { id: data.id, ok: false, message: '保存失败' })
             }
             return
         }

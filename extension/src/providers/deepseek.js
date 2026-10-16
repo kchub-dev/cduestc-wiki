@@ -232,10 +232,10 @@ async function deleteChatSession(accessToken, sessionId) {
     }
 }
 
-async function requestPowChallenge(accessToken, signal) {
+async function requestPowChallenge(accessToken, signal, targetPath = '/api/v0/chat/completion') {
     const payload = await fetchJSON('/chat/create_pow_challenge', {
         method: 'POST',
-        body: { target_path: '/api/v0/chat/completion' },
+        body: { target_path: targetPath },
         accessToken,
         signal,
     })
@@ -245,13 +245,78 @@ async function requestPowChallenge(accessToken, signal) {
     return challenge
 }
 
-function buildPowHeader(challenge) {
-    const answer = solveDeepSeekChallenge(challenge)
+// PoW 求解统一走 offscreen 文档：MV3 SW 线程被浏览器大幅降频（实测约 1/300），
+// 直接在 SW 里算要几十秒；offscreen 文档是扩展自带的隐藏页面，算力正常且不可见。
+const OFFSCREEN_URL = 'offscreen.html'
+let offscreenCreating = null
+
+async function ensureOffscreen() {
+    try {
+        if (await chrome.offscreen.hasDocument())
+            return true
+    }
+    catch {
+        // hasDocument 不可用时直接尝试创建
+    }
+    if (!offscreenCreating) {
+        offscreenCreating = (async () => {
+            const reasons = ['WORKERS', 'DOM_PARSER']
+            for (const reason of reasons) {
+                try {
+                    await chrome.offscreen.createDocument({
+                        url: OFFSCREEN_URL,
+                        reasons: [reason],
+                        justification: '计算 DeepSeek 接口要求的 PoW 工作量证明',
+                    })
+                    return true
+                }
+                catch (error) {
+                    if (String(error).includes('already exists'))
+                        return true
+                }
+            }
+            return false
+        })().finally(() => {
+            offscreenCreating = null
+        })
+    }
+    return await offscreenCreating
+}
+
+/**
+ * 求解 PoW nonce：优先 offscreen，失败退回 SW 内计算（慢但兜底）。
+ * @param {object} challenge 服务端下发的 PoW 挑战
+ * @returns {Promise<{nonce: number, via: string, solveMs: number}>} nonce 及求解来源/耗时
+ */
+async function solveChallengeNonce(challenge) {
+    try {
+        if (await ensureOffscreen()) {
+            const response = await chrome.runtime.sendMessage({ type: 'kcos-pow-solve', challenge })
+            if (response?.ok && Number.isInteger(response.nonce))
+                return { nonce: response.nonce, via: 'offscreen', solveMs: response.solveMs || 0 }
+            if (response && response.ok === false)
+                throw new Error(response.message || 'PoW 求解失败')
+        }
+    }
+    catch (error) {
+        const reason = String(error?.message || error)
+        // 求解本身失败（如难度内无解）不应重试
+        if (reason.includes('难度'))
+            throw error
+        // offscreen 不可用：退回 SW 内求解
+    }
+    const startedAt = Date.now()
+    const nonce = solveDeepSeekChallenge(challenge)
+    return { nonce, via: 'sw', solveMs: Date.now() - startedAt }
+}
+
+async function buildPowHeader(challenge) {
+    const { nonce } = await solveChallengeNonce(challenge)
     const payload = {
         algorithm: challenge.algorithm,
         challenge: challenge.challenge,
         salt: challenge.salt,
-        answer,
+        answer: nonce,
         signature: challenge.signature,
         target_path: challenge.target_path,
     }
@@ -264,22 +329,80 @@ function buildPowHeader(challenge) {
 }
 
 /**
+ * 上传一个附件：单独取 PoW → multipart 上传 → 等待服务端处理完成，返回 file id。
+ * 完成后的 file id 放进补全请求的 ref_file_ids。
+ */
+async function uploadAttachment(accessToken, attachment, signal) {
+    const challenge = await requestPowChallenge(accessToken, signal, '/api/v0/file/upload_file')
+    const powHeader = await buildPowHeader(challenge)
+
+    const binary = atob(attachment.data || '')
+    const bytes = new Uint8Array(binary.length)
+    for (let index = 0; index < binary.length; index++)
+        bytes[index] = binary.charCodeAt(index)
+    const form = new FormData()
+    form.append('file', new Blob([bytes], { type: attachment.mime || 'application/octet-stream' }), attachment.name || 'attachment')
+
+    const response = await fetch(`${API_BASE}/file/upload_file`, {
+        method: 'POST',
+        headers: {
+            ...BASE_HEADERS,
+            'Authorization': `Bearer ${accessToken}`,
+            'X-Ds-PoW-Response': powHeader,
+        },
+        body: form,
+        credentials: 'include',
+        signal,
+    })
+    if (!response.ok)
+        throw new Error(['DeepSeek 附件上传 HTTP', response.status].join(' '))
+    const payload = await response.json().catch(() => null)
+    const fileId = pickBizData(payload)?.id
+    if (!fileId)
+        throw new Error('DeepSeek 附件上传失败：响应中没有文件 ID')
+
+    // PENDING → SUCCESS（服务端要解析文件内容），最多等 30 秒
+    const start = Date.now()
+    while (Date.now() - start < 30000) {
+        try {
+            const list = await fetchJSON(`/file/fetch_files?file_ids=${encodeURIComponent(fileId)}`, { accessToken, signal })
+            const status = pickBizData(list)?.files?.[0]?.status
+            if (status === 'SUCCESS' || status === 'FAILED')
+                break
+        }
+        catch {
+            // 轮询失败不致命，继续等
+        }
+        await new Promise(resolve => setTimeout(resolve, 1200))
+    }
+    return fileId
+}
+
+/**
  * 发起一次对话补全。
  * @param {object} options
  * @param {Array<{role: string, content: string}>} options.messages OpenAI 风格消息
  * @param {boolean} [options.thinking] 是否开启深度思考（R1 风格）
+ * @param {Array<{name: string, mime: string, data: string}>} [options.attachments] 附件（base64）
  * @param {(text: string) => void} [options.onDelta] 正文增量回调
  * @param {AbortSignal} [options.signal]
  * @returns {Promise<string>} 完整正文
  */
-export async function deepseekChat({ messages, thinking = false, onDelta, signal }) {
+export async function deepseekChat({ messages, thinking = false, attachments = [], onDelta, signal }) {
     const accessToken = await getAccessToken(signal)
     const sessionId = await createChatSession(accessToken, signal)
+
+    // 附件先上传拿到 file id（重试补全时不重复上传）
+    const refFileIds = []
+    for (const attachment of (Array.isArray(attachments) ? attachments.slice(0, 3) : [])) {
+        if (attachment?.data)
+            refFileIds.push(await uploadAttachment(accessToken, attachment, signal))
+    }
 
     // 一次补全尝试：新建 PoW 挑战 → 请求补全 → 解析流
     const attemptCompletion = async () => {
         const challenge = await requestPowChallenge(accessToken, signal)
-        const powHeader = buildPowHeader(challenge)
+        const powHeader = await buildPowHeader(challenge)
 
         // 多轮对话压平成一段 prompt（上游没有暴露完整对话结构）
         const prompt = messages
@@ -303,7 +426,7 @@ export async function deepseekChat({ messages, thinking = false, onDelta, signal
                 parent_message_id: null,
                 model_type: 'default',
                 prompt,
-                ref_file_ids: [],
+                ref_file_ids: refFileIds,
                 thinking_enabled: Boolean(thinking),
                 search_enabled: false,
                 preempt: false,
@@ -390,6 +513,25 @@ async function consumeCompletionStream(response, onDelta) {
         }
         if (eventName === 'ready')
             return
+
+        // 快照形态（带附件/视觉问答常见）：{"v":{"response":{...fragments:[{type:"RESPONSE",content:"..."}]}}}
+        // 快照可能是累积全文，按「前缀衔接」做差量追加，避免与已流式收到的内容重复
+        const snapshot = data.v && typeof data.v === 'object' && !Array.isArray(data.v) ? data.v.response : null
+        if (snapshot?.fragments) {
+            const text = (Array.isArray(snapshot.fragments) ? snapshot.fragments : [snapshot.fragments])
+                .filter(fragment => ['ANSWER', 'RESPONSE'].includes(String(fragment?.type || '').toUpperCase()))
+                .map(fragment => String(fragment?.content || ''))
+                .join('')
+            if (text) {
+                if (text.startsWith(content))
+                    appendDelta(text.slice(content.length))
+                else if (content && !content.endsWith(text))
+                    appendDelta(text)
+                else if (!content)
+                    appendDelta(text)
+            }
+            return
+        }
 
         // 旧版补丁格式
         const { p, v } = data

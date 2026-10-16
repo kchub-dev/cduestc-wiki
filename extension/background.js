@@ -82,7 +82,21 @@ chrome.runtime.onConnect.addListener((port) => {
     const controller = new AbortController()
     let started = false
 
-    port.onDisconnect.addListener(() => controller.abort())
+    // 通用保活：长流程（附件上传、PoW 等）期间周期性端口消息，
+    // 防止 MV3 Service Worker 因空闲被挂起导致首个请求挂 60 秒
+    const keepAlive = setInterval(() => {
+        try {
+            port.postMessage({ ns: BRIDGE_NAMESPACE, type: 'keepalive', id: requestId })
+        }
+        catch {
+            // 端口已关闭
+        }
+    }, 20000)
+
+    port.onDisconnect.addListener(() => {
+        clearInterval(keepAlive)
+        controller.abort()
+    })
     port.onMessage.addListener((message) => {
         if (message?.type === 'abort')
             controller.abort()
@@ -107,6 +121,7 @@ chrome.runtime.onConnect.addListener((port) => {
         const content = await adapter.chat({
             messages: Array.isArray(payload?.messages) ? payload.messages : [],
             thinking: payload?.thinking ?? settings.thinking,
+            attachments: Array.isArray(payload?.attachments) ? payload.attachments : [],
             signal: controller.signal,
             onDelta: (delta) => {
                 if (!controller.signal.aborted)

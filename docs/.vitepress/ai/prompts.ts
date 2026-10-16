@@ -56,7 +56,8 @@ ${message}
 
 export function parseGroundedResponse(rawContent: string): AIChatResponse {
     const citedSourceIds: string[] = []
-    const markerPattern = /\[\[(?:sources?|来源)\s*[:：]\s*[^\]]{0,200}\]\]|\[来源\s+[^\]]{0,200}\]/gi
+    // 双方括号（提示词规定的格式）与模型常见的单方括号写法都要剥掉
+    const markerPattern = /\[\[(?:sources?|来源)\s*[:：]\s*[^\]]{0,200}\]\]|\[(?:sources?|来源)\s*[:：]\s*[^\]]{0,200}\]|\[来源\s+[^\]]{0,200}\]/gi
     const content = stripModelReasoning(rawContent).replace(markerPattern, (marker: string) => {
         for (const id of marker.match(/kb_[a-z0-9]+/gi) || []) {
             const normalizedId = id.toLowerCase()

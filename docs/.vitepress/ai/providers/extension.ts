@@ -27,6 +27,7 @@ export const extensionAIProvider: AIProvider = {
                 messages,
                 signal: request.signal,
                 onToken: request.onToken,
+                attachments: request.attachments,
             })
         }
         catch (error) {

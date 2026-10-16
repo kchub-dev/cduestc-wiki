@@ -13,9 +13,22 @@
       </div>
     </Transition>
 
+    <!-- 划词提问：选中页面文字后浮现的小按钮 -->
+    <button
+      v-if="selectionAction"
+      class="selection-ask-btn"
+      :style="{ left: `${selectionAction.x}px`, top: `${selectionAction.y}px` }"
+      type="button"
+      @mousedown.prevent
+      @click="askAboutSelection"
+    >
+      <Icon icon="ri:chat-quote-line" />
+      问 AI
+    </button>
+
     <!-- 对话窗口 -->
     <Transition name="chat-window">
-      <div v-show="isOpen" class="chat-window">
+      <div v-show="isOpen" class="chat-window" @dragover.prevent @drop.prevent="onDrop">
         <!-- 标题栏 -->
         <div class="chat-header">
           <div class="header-info">
@@ -31,7 +44,7 @@
                 class="mode-btn"
                 :class="{ active: chatMode === 'byow' }"
                 v-tip="'选择回答来源'"
-                @click.stop="modeMenuOpen = !modeMenuOpen"
+                @click.stop="onModeButtonClick"
               >
                 <Icon :icon="chatMode === 'byow' ? 'ri:flashlight-line' : 'ri:cloud-line'" />
                 <span>{{ chatMode === 'byow' ? `直连·${bridgeUpstream}` : '网关' }}</span>
@@ -149,11 +162,34 @@
                 v-if="message.isUser"
                 class="message-text"
               >{{ message.content }}</div>
+              <!-- 直连流式占位：内容未到达时只在气泡内显示输入中动画，避免与全局加载指示重复 -->
+              <div v-else-if="message.streaming && !message.content" class="typing-indicator">
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
               <div
                 v-else
                 class="message-text vp-doc"
                 v-html="formatMessage(message.content)"
               ></div>
+              <!-- 已发送消息里的附件（图片缩略图可点击/双击看大图） -->
+              <div v-if="message.attachments && message.attachments.length > 0" class="msg-attachments">
+                <template v-for="(item, index) in message.attachments" :key="`${item.name}_${index}`">
+                  <img
+                    v-if="item.mime.startsWith('image/')"
+                    class="msg-attach-thumb"
+                    :src="`data:${item.mime};base64,${item.data}`"
+                    alt=""
+                    title="点击查看大图"
+                    @click="openImagePreview(item)"
+                  >
+                  <span v-else class="msg-attach-file">
+                    <Icon icon="ri:file-text-line" />
+                    {{ item.name }}
+                  </span>
+                </template>
+              </div>
               <!-- 相关页面链接 -->
               <div v-if="!message.isUser && message.links && message.links.length > 0" class="message-links">
                 <div class="links-title">
@@ -174,8 +210,8 @@
                   </a>
                 </div>
               </div>
-              <div class="message-time">{{ formatTime(message.timestamp) }}</div>
-              <div v-if="!message.isUser" class="message-feedback">
+              <div v-if="!message.streaming" class="message-time">{{ formatTime(message.timestamp) }}</div>
+              <div v-if="!message.isUser && !message.streaming" class="message-feedback">
                 <button
                   :class="{ active: message.feedback === 'up', liking: message.feedbackState === 'liking' }"
                   aria-label="有帮助"
@@ -215,8 +251,8 @@
             </div>
           </div>
 
-          <!-- 加载状态 -->
-          <div v-if="isLoading" class="message ai-message">
+          <!-- 加载状态：直连流式占位已自带输入中动画，这里只在没有流式占位时显示 -->
+          <div v-if="isLoading && !streamingMessageActive" class="message ai-message">
             <div class="message-avatar">
               <Icon icon="ri:robot-2-fill" class="avatar-icon" />
             </div>
@@ -252,20 +288,67 @@
 
         <!-- 输入区域 -->
         <div class="chat-input-area">
+          <!-- 划词引用（来自页面选中文字） -->
+          <div v-if="quotedSelection" class="quote-chip">
+            <Icon icon="ri:chat-quote-line" class="quote-chip-icon" />
+            <span class="quote-chip-text">「{{ quotedSelection.length > 60 ? `${quotedSelection.slice(0, 60)}…` : quotedSelection }}」</span>
+            <button class="quote-chip-remove" type="button" aria-label="移除引用" @click="quotedSelection = ''">
+              <Icon icon="ri:close-line" />
+            </button>
+          </div>
+          <!-- 待发送附件（仅本地直连支持） -->
+          <div v-if="chatMode === 'byow' && pendingAttachments.length > 0" class="attach-chips">
+            <div v-for="(item, index) in pendingAttachments" :key="`${item.name}_${index}`" class="attach-chip">
+              <img
+                v-if="item.mime.startsWith('image/')"
+                class="attach-chip-thumb"
+                :src="`data:${item.mime};base64,${item.data}`"
+                alt=""
+                title="点击查看大图"
+                @click="openImagePreview(item)"
+              >
+              <Icon v-else icon="ri:file-text-line" class="attach-chip-icon" />
+              <span class="attach-chip-name">{{ item.name }}</span>
+              <button class="attach-chip-remove" type="button" aria-label="移除附件" @click="removeAttachment(index)">
+                <Icon icon="ri:close-line" />
+              </button>
+            </div>
+          </div>
+          <div v-if="attachmentHint" class="attach-hint">{{ attachmentHint }}</div>
           <div class="input-container">
+            <button
+              v-if="chatMode === 'byow'"
+              class="attach-btn"
+              type="button"
+              aria-label="添加图片或文件"
+              v-tip="'添加图片或文件'"
+              :disabled="isLoading"
+              @click="onAttachClick"
+            >
+              <Icon icon="ri:attachment-line" />
+            </button>
+            <input
+              ref="fileInputRef"
+              class="attach-input"
+              type="file"
+              multiple
+              :accept="ATTACHMENT_ACCEPT"
+              @change="onFilesPicked"
+            />
             <textarea
               v-model="currentInput"
               @keydown.enter="handleEnterKey"
               @input="adjustTextareaHeight"
+              @paste="onPaste"
               ref="textareaRef"
               class="chat-input"
-              placeholder="输入您的问题..."
+              placeholder="请输入您的问题…"
               rows="1"
               :disabled="isLoading"
             ></textarea>
             <button
               @click="sendMessage"
-              :disabled="!currentInput.trim() || isLoading || cooldownLeft > 0"
+              :disabled="(!currentInput.trim() && pendingAttachments.length === 0) || isLoading || cooldownLeft > 0"
               class="send-btn"
             >
               <Icon icon="ri:send-plane-2-fill" />
@@ -278,15 +361,22 @@
         </div>
       </div>
     </Transition>
+
+    <!-- 图片大图预览（点击缩略图打开，点击任意处或按 Esc 关闭） -->
+    <div v-if="previewImage" class="image-preview-overlay" @click="closeImagePreview">
+      <img class="image-preview-img" :src="previewImage.src" :alt="previewImage.name">
+      <div class="image-preview-caption">{{ previewImage.name }} · 点击任意处或按 Esc 关闭</div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import DOMPurify from 'dompurify'
 import MarkdownIt from 'markdown-it'
 import { rewriteRetrievalQuery, searchKnowledge, selectRelatedSources } from '../ai/knowledge'
 import type { KnowledgeEntry, SemanticIndex } from '../ai/knowledge'
+import type { AIAttachment } from '../ai/types'
 import { activeAIProvider, extensionAIProvider } from '../ai/provider'
 import { connectExtensionBridge } from '../ai/providers/extension'
 import { bridgeInfo, setBridgeProvider, upstreamLabel } from '../ai/bridge'
@@ -298,6 +388,187 @@ const isOpen = ref(false)
 const currentInput = ref('')
 const isLoading = ref(false)
 const hasUnread = ref(false)
+
+// ==== 附件（仅本地直连支持；云端网关为纯文本） ====
+const ATTACHMENT_ACCEPT = 'image/*,.pdf,.txt,.md,.csv,.json,.doc,.docx,.xls,.xlsx,.ppt,.pptx'
+const MAX_ATTACHMENT_COUNT = 3
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
+const pendingAttachments = ref<AIAttachment[]>([])
+const attachmentHint = ref('')
+const fileInputRef = ref<HTMLInputElement>()
+let attachmentHintTimer: ReturnType<typeof setTimeout> | null = null
+
+const showAttachmentHint = (text: string) => {
+  attachmentHint.value = text
+  if (attachmentHintTimer) clearTimeout(attachmentHintTimer)
+  attachmentHintTimer = setTimeout(() => { attachmentHint.value = '' }, 4000)
+}
+
+// 图片大图预览（点击缩略图打开，Esc / 点击遮罩关闭）
+const previewImage = ref<{ src: string; name: string } | null>(null)
+const openImagePreview = (item: AIAttachment) => {
+  previewImage.value = { src: `data:${item.mime};base64,${item.data}`, name: item.name }
+}
+const closeImagePreview = () => {
+  previewImage.value = null
+}
+const onPreviewKeydown = (event: KeyboardEvent) => {
+  if (event.key === 'Escape' && previewImage.value)
+    closeImagePreview()
+}
+
+// 网关模式点击附件按钮：给出提示（校园网关是纯文本通道）
+const onAttachClick = () => {
+  if (chatMode.value !== 'byow') {
+    showAttachmentHint('校园网关不支持图片 / 文件，切换到「本地直连」即可（豆包 / DeepSeek）')
+    return
+  }
+  fileInputRef.value?.click()
+}
+
+// ==== 划词提问：选中 Wiki 正文后浮现「问 AI」按钮 ====
+const quotedSelection = ref('')
+const selectionAction = ref<{ x: number, y: number, text: string } | null>(null)
+const MAX_QUOTE_CHARS = 500
+
+const clearSelectionAction = () => {
+  selectionAction.value = null
+}
+
+// 只允许正文区域的划词（排除聊天窗自身、代码块复制按钮等）
+const isSelectionEligible = (node: Node | null) => {
+  if (!node)
+    return false
+  const element = node.nodeType === Node.ELEMENT_NODE ? node as HTMLElement : node.parentElement
+  if (!element)
+    return false
+  if (element.closest('.chat-window, .chat-float-button, .selection-ask-btn'))
+    return false
+  return Boolean(element.closest('.vp-doc, .VPDoc, .VPHome, .vp-doc.container'))
+}
+
+const onSelectionChange = () => {
+  const selection = window.getSelection()
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+    clearSelectionAction()
+    return
+  }
+  const text = selection.toString().replace(/\s+/g, ' ').trim()
+  if (text.length < 4) {
+    clearSelectionAction()
+    return
+  }
+  const range = selection.getRangeAt(0)
+  if (!isSelectionEligible(range.commonAncestorContainer)) {
+    clearSelectionAction()
+    return
+  }
+  const rect = range.getBoundingClientRect()
+  if (!rect || (rect.width === 0 && rect.height === 0)) {
+    clearSelectionAction()
+    return
+  }
+  // 按钮浮在选区上方居中（视口坐标，容器为 fixed 定位）
+  selectionAction.value = {
+    x: Math.min(Math.max(rect.left + rect.width / 2, 70), window.innerWidth - 70),
+    y: Math.max(rect.top - 10, 60),
+    text: text.slice(0, MAX_QUOTE_CHARS),
+  }
+}
+
+const askAboutSelection = () => {
+  const action = selectionAction.value
+  if (!action)
+    return
+  quotedSelection.value = action.text
+  clearSelectionAction()
+  window.getSelection()?.removeAllRanges()
+  if (!isOpen.value)
+    toggleChat()
+  nextTick(() => {
+    textareaRef.value?.focus()
+    scrollToBottom()
+  })
+}
+
+const removeAttachment = (index: number) => {
+  pendingAttachments.value.splice(index, 1)
+}
+
+const readFileAsBase64 = (file: File) => new Promise<string>((resolve, reject) => {
+  const reader = new FileReader()
+  reader.onload = () => {
+    const result = String(reader.result || '')
+    const comma = result.indexOf(',')
+    resolve(comma >= 0 ? result.slice(comma + 1) : '')
+  }
+  reader.onerror = () => reject(new Error('读取失败'))
+  reader.readAsDataURL(file)
+})
+
+const addFiles = async (files: File[]) => {
+  if (chatMode.value !== 'byow') {
+    showAttachmentHint('校园网关不支持图片 / 文件，切换到「本地直连」即可（豆包 / DeepSeek）')
+    return
+  }
+  for (const file of files) {
+    if (pendingAttachments.value.length >= MAX_ATTACHMENT_COUNT) {
+      showAttachmentHint(`最多添加 ${MAX_ATTACHMENT_COUNT} 个附件`)
+      break
+    }
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      showAttachmentHint(`${file.name || '图片'} 超过 5MB，请压缩后再上传`)
+      continue
+    }
+    try {
+      const data = await readFileAsBase64(file)
+      if (!data)
+        continue
+      pendingAttachments.value.push({
+        name: file.name || `粘贴的图片-${pendingAttachments.value.length + 1}.png`,
+        mime: file.type || 'application/octet-stream',
+        data,
+      })
+    }
+    catch {
+      showAttachmentHint(`${file.name || '附件'} 读取失败`)
+    }
+  }
+}
+
+const onFilesPicked = async (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const files = Array.from(input.files || [])
+  input.value = ''
+  await addFiles(files)
+}
+
+// 粘贴图片/文件（和豆包等主流 AI 对话框一致的用法）
+const onPaste = (event: ClipboardEvent) => {
+  const files: File[] = []
+  const items = event.clipboardData?.items
+  if (items) {
+    for (const item of Array.from(items)) {
+      if (item.kind === 'file') {
+        const file = item.getAsFile()
+        if (file)
+          files.push(file)
+      }
+    }
+  }
+  if (files.length) {
+    event.preventDefault()
+    void addFiles(files)
+  }
+}
+
+// 拖拽文件到聊天窗
+const onDrop = (event: DragEvent) => {
+  const files = Array.from(event.dataTransfer?.files || [])
+  if (files.length)
+    void addFiles(files)
+}
+
 type ChatMessage = {
   id: string
   content: string
@@ -307,8 +578,14 @@ type ChatMessage = {
   feedback?: 'up' | 'down' | null
   // 反馈动效状态：赞动画中 / 首次踩求饶中 / 二次踩已生效
   feedbackState?: 'idle' | 'liking' | 'dislike-warn' | 'dislike-confirmed'
+  // 直连流式占位消息：内容到达前在气泡内显示输入中动画，不显示时间/点赞栏
+  streaming?: boolean
+  // 用户消息携带的附件（用于在气泡里渲染缩略图 / 文件芯片）
+  attachments?: AIAttachment[]
 }
 const messages = ref<ChatMessage[]>([])
+// 是否已有直连流式占位气泡：有它时不再显示全局加载指示器，避免同时出现两个占位框
+const streamingMessageActive = computed(() => messages.value.some(item => item.streaming))
 const suggestedQuestions = ref<string[]>([])
 let requestController: AbortController | null = null
 
@@ -318,6 +595,13 @@ type ChatMode = 'gateway' | 'byow'
 const CHAT_MODE_KEY = 'ai_chat_mode'
 const chatMode = ref<ChatMode>('gateway')
 const bridgeReady = ref(false)
+// 切回网关模式时清空附件（网关不支持附件）；顺带清掉残留的附件提示
+watch(chatMode, (mode) => {
+  attachmentHint.value = ''
+  if (mode !== 'byow') {
+    pendingAttachments.value = []
+  }
+})
 const bridgeUpstreamId = ref('deepseek')
 const bridgeUpstream = computed(() => upstreamLabel(bridgeUpstreamId.value) || '直连')
 const modeMenuOpen = ref(false)
@@ -340,6 +624,13 @@ const detectExtension = async () => {
   // 恢复用户上次的模式选择；扩展掉线时保持网关
   if (localStorage.getItem(CHAT_MODE_KEY) === 'byow' && bridgeReady.value)
     chatMode.value = 'byow'
+}
+
+// 打开模式菜单时，若此前握手失败（例如扩展后台冷启动还没醒）就再检测一次，自愈
+const onModeButtonClick = () => {
+  modeMenuOpen.value = !modeMenuOpen.value
+  if (modeMenuOpen.value && !bridgeReady.value)
+    void detectExtension()
 }
 
 const currentProvider = computed(() =>
@@ -409,7 +700,7 @@ const selectMode = async (mode: ChatMode, upstreamId?: string) => {
 
 // 流式渲染期间隐藏结尾可能正在写入的 [[sources:...]] 标记，完成后统一替换为干净正文
 const stripLiveCitations = (text: string) =>
-  text.replace(/\s*\[\[\s*(?:sources?|来源)?\s*[:：]?[^\]]*$/gi, '')
+  text.replace(/\s*\[{1,2}\s*(?:sources?|来源)?\s*[:：]?\s*[^\]]*$/gi, '')
 
 // DOM引用
 const messagesContainer = ref<HTMLElement>()
@@ -690,10 +981,16 @@ const adjustTextareaHeight = () => {
 // 发送消息
 const sendMessage = async () => {
   const sanitizedInput = sanitizeUserInput(currentInput.value)
-  const message = sanitizedInput.text
-  if (!message || isLoading.value) return
+  // 划词引用拼在问题前面，让模型知道用户在问哪段内容
+  const quote = quotedSelection.value.trim()
+  const message = quote
+    ? (sanitizedInput.text ? `关于这段内容：「${quote}」\n\n${sanitizedInput.text}` : `请解释这段内容：「${quote}」`)
+    : sanitizedInput.text
+  const outgoingAttachments = chatMode.value === 'byow' ? pendingAttachments.value.slice() : []
+  // 允许「只发附件不带文字」
+  if ((!message && outgoingAttachments.length === 0) || isLoading.value) return
 
-  if (sanitizedInput.blocked) {
+  if (message && sanitizedInput.blocked) {
     currentInput.value = ''
     messages.value.push({
       id: `blocked_${Date.now()}`,
@@ -725,14 +1022,20 @@ const sendMessage = async () => {
       content: item.content
     }))
 
-  // 添加用户消息
+  // 添加用户消息（附件在气泡内以缩略图 / 文件芯片渲染）
   const userMessage = {
     id: `user_${Date.now()}`,
     content: message,
     isUser: true,
-    timestamp: Date.now()
+    timestamp: Date.now(),
+    attachments: outgoingAttachments.length
+      ? outgoingAttachments.map(item => ({ name: item.name, mime: item.mime, data: item.data }))
+      : undefined,
   }
   messages.value.push(userMessage)
+  pendingAttachments.value = []
+  attachmentHint.value = ''
+  quotedSelection.value = ''
 
   // 清空输入
   currentInput.value = ''
@@ -744,7 +1047,11 @@ const sendMessage = async () => {
   const previousQueries = history
     .filter(item => item.role === 'user')
     .map(item => item.content)
-  const retrievalQuery = rewriteRetrievalQuery(message, previousQueries)
+  // 检索用「引用内容 + 用户问题」的裸文本，去掉包装措辞以免干扰关键词匹配
+  const retrievalSource = quote
+    ? [quote, sanitizedInput.text].filter(Boolean).join(' ')
+    : message
+  const retrievalQuery = rewriteRetrievalQuery(retrievalSource, previousQueries)
   await loadKnowledge()
 
   // 先检索知识库，获取相关链接
@@ -763,6 +1070,7 @@ const sendMessage = async () => {
       content: '',
       isUser: false,
       timestamp: Date.now(),
+      streaming: true,
     })
     // 从响应式数组取回代理对象，后续直接改属性即可触发视图更新
     liveMessage = messages.value[messages.value.length - 1] || null
@@ -781,6 +1089,7 @@ const sendMessage = async () => {
         sources,
         history,
         signal: requestController.signal,
+        attachments: outgoingAttachments.length ? outgoingAttachments : undefined,
         onToken: liveMessage
           ? (token) => {
               liveRaw += token
@@ -836,6 +1145,7 @@ const sendMessage = async () => {
   }
 
   if (liveMessage) {
+    liveMessage.streaming = false
     liveMessage.content = answer
     if (relatedLinks.length > 0)
       liveMessage.links = relatedLinks
@@ -951,6 +1261,12 @@ onMounted(() => {
   quickQuestions.value = getRandomQuestions()
   detectExtension()
   document.addEventListener('click', handleClickOutside)
+  window.addEventListener('keydown', onPreviewKeydown)
+  // 划词提问：selectionchange 在移动端/部分浏览器触发时机不稳，用 mouseup + keyup 兜底
+  document.addEventListener('selectionchange', onSelectionChange)
+  document.addEventListener('mouseup', onSelectionChange)
+  document.addEventListener('keyup', onSelectionChange)
+  window.addEventListener('scroll', clearSelectionAction, { passive: true })
 })
 
 onUnmounted(() => {
@@ -959,6 +1275,11 @@ onUnmounted(() => {
   feedbackTimers.forEach(timer => clearTimeout(timer))
   feedbackTimers.clear()
   document.removeEventListener('click', handleClickOutside)
+  window.removeEventListener('keydown', onPreviewKeydown)
+  document.removeEventListener('selectionchange', onSelectionChange)
+  document.removeEventListener('mouseup', onSelectionChange)
+  document.removeEventListener('keyup', onSelectionChange)
+  window.removeEventListener('scroll', clearSelectionAction)
 })
 </script>
 
@@ -1936,6 +2257,227 @@ onUnmounted(() => {
   color: var(--vp-c-text-3);
   margin-top: 8px;
   text-align: center;
+}
+
+/* ==== 划词提问 ==== */
+.selection-ask-btn {
+  position: fixed;
+  z-index: 99998;
+  transform: translate(-50%, -100%);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 11px;
+  border: none;
+  border-radius: 14px;
+  background: var(--vp-c-brand-1);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.selection-ask-btn:hover {
+  background: var(--vp-c-brand-2);
+  transform: translate(-50%, -100%) scale(1.04);
+}
+
+.quote-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding: 5px 9px;
+  border-left: 3px solid var(--vp-c-brand-1);
+  border-radius: 6px;
+  background: var(--vp-c-bg-soft);
+  font-size: 12px;
+  color: var(--vp-c-text-2);
+}
+
+.quote-chip-icon {
+  color: var(--vp-c-brand-1);
+  flex-shrink: 0;
+}
+
+.quote-chip-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quote-chip-remove {
+  border: none;
+  background: transparent;
+  color: var(--vp-c-text-3);
+  cursor: pointer;
+  display: flex;
+  padding: 0;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.quote-chip-remove:hover {
+  color: var(--vp-c-danger-1, #e5484d);
+}
+
+/* ==== 附件（仅本地直连） ==== */
+.attach-input {
+  display: none;
+}
+
+.attach-btn {
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: transparent;
+  color: var(--vp-c-text-2);
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.attach-btn:hover:not(:disabled) {
+  color: var(--vp-c-brand-1);
+  background: var(--vp-c-bg-soft);
+}
+
+.attach-btn:disabled {
+  color: var(--vp-c-text-3);
+  cursor: not-allowed;
+}
+
+.attach-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 14px;
+  background: var(--vp-c-bg-soft);
+  font-size: 12px;
+  color: var(--vp-c-text-1);
+}
+
+.attach-chip-icon {
+  color: var(--vp-c-brand-1);
+  flex-shrink: 0;
+}
+
+.attach-chip-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+  cursor: zoom-in;
+}
+
+/* ==== 已发送消息里的附件与图片预览 ==== */
+.msg-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  justify-content: flex-end;
+}
+
+.msg-attach-thumb {
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  object-fit: cover;
+  cursor: zoom-in;
+  border: 1px solid var(--vp-c-divider);
+  transition: transform 0.15s ease;
+}
+
+.msg-attach-thumb:hover {
+  transform: scale(1.03);
+}
+
+.msg-attach-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+  background: var(--vp-c-bg-soft);
+  font-size: 12px;
+  color: var(--vp-c-text-1);
+}
+
+.image-preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: rgba(0, 0, 0, 0.8);
+  cursor: zoom-out;
+  padding: 32px;
+}
+
+.image-preview-img {
+  max-width: 88vw;
+  max-height: 82vh;
+  border-radius: 10px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+  background: #fff;
+}
+
+.image-preview-caption {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.attach-chip-name {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attach-chip-remove {
+  border: none;
+  background: transparent;
+  color: var(--vp-c-text-3);
+  cursor: pointer;
+  display: flex;
+  padding: 0;
+  font-size: 13px;
+}
+
+.attach-chip-remove:hover {
+  color: var(--vp-c-danger-1, #e5484d);
+}
+
+.attach-hint {
+  font-size: 11px;
+  color: var(--vp-c-warning-1, #f59e0b);
+  margin-bottom: 6px;
+  text-align: left;
 }
 
 .cooldown-tip {

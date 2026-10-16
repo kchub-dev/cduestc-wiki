@@ -65,7 +65,7 @@ export function pingExtensionBridge(timeoutMs = 1200): Promise<BridgeInfo | null
     if (pendingPing)
         return pendingPing
 
-    pendingPing = new Promise<BridgeInfo | null>((resolve) => {
+    const attemptOnce = () => new Promise<BridgeInfo | null>((resolve) => {
         const nonceBytes = new Uint8Array(8)
         crypto.getRandomValues(nonceBytes)
         const nonce = Array.from(nonceBytes, byte => byte.toString(36)).join('')
@@ -74,27 +74,41 @@ export function pingExtensionBridge(timeoutMs = 1200): Promise<BridgeInfo | null
         const cleanup = () => {
             window.removeEventListener('message', onMessage)
             clearTimeout(timer)
-            pendingPing = null
         }
         const onMessage = (event: MessageEvent) => {
             if (!isBridgeEvent(event) || event.data.type !== 'pong' || event.data.nonce !== nonce)
                 return
             settled = true
             cleanup()
-            bridgeInfo.value = event.data.payload || null
-            resolve(bridgeInfo.value)
+            resolve(event.data.payload || null)
         }
         const timer = setTimeout(() => {
             if (settled)
                 return
             settled = true
             cleanup()
-            bridgeInfo.value = null
             resolve(null)
         }, timeoutMs)
 
         window.addEventListener('message', onMessage)
         window.postMessage({ ns: BRIDGE_NAMESPACE, type: 'ping', nonce }, location.origin)
+    })
+
+    // 扩展后台（MV3 Service Worker）冷启动唤醒可能较慢：多试几轮，任一成功即返回。
+    // 只 ping 一次的话，偶发的冷启动延迟会让页面误判「扩展未安装」且不再恢复。
+    pendingPing = (async () => {
+        for (let round = 0; round < 3; round++) {
+            const payload = await attemptOnce()
+            if (payload) {
+                bridgeInfo.value = payload
+                return payload
+            }
+            await new Promise(resolve => setTimeout(resolve, 400))
+        }
+        bridgeInfo.value = null
+        return null
+    })().finally(() => {
+        pendingPing = null
     })
 
     return pendingPing
@@ -107,6 +121,8 @@ export interface BridgeChatOptions {
     signal?: AbortSignal
     /** 整体超时，默认 5 分钟（深度思考模式可能较慢） */
     timeoutMs?: number
+    /** 附件（base64），仅直连模式使用 */
+    attachments?: Array<{ name: string, mime: string, data: string }>
 }
 
 /**
@@ -170,7 +186,15 @@ export function chatViaBridge(options: BridgeChatOptions): Promise<string> {
             ns: BRIDGE_NAMESPACE,
             type: 'chat',
             id,
-            payload: { messages: options.messages },
+            payload: {
+                messages: options.messages,
+                // 附件要转成纯对象：Vue 响应式代理无法通过 postMessage 的结构化克隆
+                attachments: options.attachments?.map(item => ({
+                    name: String(item.name),
+                    mime: String(item.mime),
+                    data: String(item.data),
+                })),
+            },
         }, location.origin)
     })
 }

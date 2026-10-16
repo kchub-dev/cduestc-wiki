@@ -45,7 +45,7 @@ org:
   zhiyuanhui:
     name: 志愿汇
     icon: http://p19.qhimg.com/t01ee80da7f31430c22.png
-    link: http://mobile.d.appchina.com/McDonald/e/7490457/0/0/0/1757990969877/package_574.1757990969877
+    link: https://sj.qq.com/appdetail/com.zyh.app
     desc: 部分组织团体用来记录志愿时长
   xuexi:
     name: 学习强国
@@ -65,19 +65,19 @@ life:
   cainiao:
     name: 菜鸟
     icon: http://p16.qhimg.com/dr/_72_/t01950c338d20f6ccaa.png
-    link: http://mobile.d.appchina.com/McDonald/e/7478497/0/0/0/1757923238308/package_445.1757923238308
+    link: https://sj.qq.com/appdetail/com.taobao.cainiao
     desc: 查快递、取快递
   huiyou:
     name: 汇优
     icon: https://img.downkuai.com/logo/20221011/5fc42e23929133fe3ea800a6f6837536.png
-    link: https://oss.cduestc.fun/huiyou-5.3.4.apk
+    link: https://sj.qq.com/appdetail/com.klcxkj.quzhixiaoyuan_hx
     desc:
       - 什邡校区 寝室热水
       - 仅支持支付宝充值
   pgsh:
     name: 胖乖生活
     icon: https://pp.myapp.com/ma_icon/0/icon_53962564_1749801897/256
-    link: http://mobile.d.appchina.com/McDonald/e/7486078/0/0/0/1757925065585/package_173.1757925065585
+    link: https://sj.qq.com/appdetail/com.qiekj.user
     desc:
       - 公共洗衣机
       - 垃圾软件，一堆广告

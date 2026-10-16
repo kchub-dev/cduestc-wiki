@@ -1,22 +1,24 @@
 /* stylelint-disable selector-class-pattern */
-/* 定义自定义字体 */
+/* 定义自定义字体：全字符集 woff2，随站点自托管（不再依赖外部 OSS，
+   避免第三方资源被移除导致的 404。字符集覆盖基本拉丁、拉丁扩展、CJK 统一表意
+   文字、标点、符号、Nerd Font 图标等全部字形）。 */
 @font-face {
     font-family: 'MapleMono-1';
-    src: url('/MapleMono-NF-CN-Bold.ttf') format('truetype');
+    src: url('/fonts/MapleMono-NF-CN-Bold.woff2') format('woff2');
     font-weight: normal;
     font-style: normal;
     font-display: swap;
 }
 @font-face {
     font-family: 'writefont';
-    src: url('/ChenYuluoyan-2.0-Thin.ttf') format('truetype');
+    src: url('/fonts/ChenYuluoyan-2.0-Thin.woff2') format('woff2');
     font-weight: normal;
     font-style: normal;
     font-display: swap;
 }
 @font-face {
     font-family: 'MapleMono-2';
-    src: url('https://oss.cduestc.fun/MapleMono-NF-CN-Light.ttf') format('truetype');
+    src: url('/fonts/MapleMono-NF-CN-Light.woff2') format('woff2');
     font-weight: normal;
     font-style: normal;
     font-display: swap;

@@ -22,6 +22,9 @@ import Tip from '../components/Tip.vue'
 
 import 'tippy.js/dist/svg-arrow.css'
 import './theme-enhanced.css'
+import './fonts.css'
+import './maple-bold.css'
+import './chenyuluoyan.css'
 import './style.css'
 
 /**

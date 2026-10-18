@@ -47,8 +47,8 @@ export default defineConfig({
 
     head: [
         ['link', { rel: 'icon', href: '/logo.svg' }],
-        // 正文字体预加载：字体为全字符集（woff2 约 6MB），提前发起请求减少首屏回退闪烁
-        ['link', { rel: 'preload', href: '/fonts/MapleMono-NF-CN-Light.woff2', as: 'font', type: 'font/woff2', crossorigin: 'anonymous' }],
+        // 正文字体预加载：只预加载「常用档」子集（约 1.6MB）；生僻档由 unicode-range 按需下载
+        ['link', { rel: 'preload', href: '/fonts/maple-common.woff2', as: 'font', type: 'font/woff2', crossorigin: 'anonymous' }],
         ['meta', { 'http-equiv': 'Content-Security-Policy', content: "default-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; script-src 'self' 'unsafe-inline' https://sdk.51.la https://*.51.la; style-src 'self' 'unsafe-inline' https://lib.baomitu.com; font-src 'self' https://lib.baomitu.com; img-src 'self' data: https:; connect-src 'self' https://spark-api.kcos.club https://*.51.la https://api.iconify.design https://api.unisvg.com https://api.simplesvg.com; frame-src 'none'" }],
         ['link', { rel: 'stylesheet', href: 'https://lib.baomitu.com/font-awesome/6.5.1/css/all.min.css', media: 'none', onload: 'media="all"' }],
         // 51LA 统计代码（同步安装，置于 head 内；hashMode 适配 SPA，screenRecord 开启录屏）

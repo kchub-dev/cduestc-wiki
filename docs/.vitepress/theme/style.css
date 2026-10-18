@@ -1,28 +1,9 @@
 /* stylelint-disable selector-class-pattern */
-/* 定义自定义字体：全字符集 woff2，随站点自托管（不再依赖外部 OSS，
-   避免第三方资源被移除导致的 404。字符集覆盖基本拉丁、拉丁扩展、CJK 统一表意
-   文字、标点、符号、Nerd Font 图标等全部字形）。 */
-@font-face {
-    font-family: 'MapleMono-1';
-    src: url('/fonts/MapleMono-NF-CN-Bold.woff2') format('woff2');
-    font-weight: normal;
-    font-style: normal;
-    font-display: swap;
-}
-@font-face {
-    font-family: 'writefont';
-    src: url('/fonts/ChenYuluoyan-2.0-Thin.woff2') format('woff2');
-    font-weight: normal;
-    font-style: normal;
-    font-display: swap;
-}
-@font-face {
-    font-family: 'MapleMono-2';
-    src: url('/fonts/MapleMono-NF-CN-Light.woff2') format('woff2');
-    font-weight: normal;
-    font-style: normal;
-    font-display: swap;
-}
+/* 字体声明见 fonts.css（由 scripts/build-fonts.py 生成）：
+   正文字体按「常用 / 生僻」两档子集化并自托管，常用档随首屏加载、
+   生僻档由 unicode-range 按需下载，合计覆盖 GBK 全字表。
+   历史：原字体托管在阿里云 OSS，资源被删除后 404（issue #19），
+   现改为随 GitHub Pages 一起发布，无外部依赖。 */
 
 :root {
     /* 设置全局字体 */

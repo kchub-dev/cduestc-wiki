@@ -9,7 +9,6 @@
 //   <- { type: 'run', prompt }   开始一次提问
 //   <- { type: 'poke' }          周期心跳（后台标签页定时器被节流，由扩展侧驱动检查）
 //   <- { type: 'abort' }         取消
-//   -> { type: 'status', ... }   进度（调试用）
 //   -> { type: 'delta', delta }  回答增量
 //   -> { type: 'done', content } 回答完成（完整文本）
 //   -> { type: 'error', message }失败
@@ -20,68 +19,161 @@ const TEXT_SEL = '[data-testid="message_text_content"]'
 const ACTION_BAR_SEL = '[data-testid="message_action_bar"]'
 const CHAT_INPUT_SEL = '[data-testid="chat_input"]'
 
-// 单次会话状态（同一时间只允许一轮，避免把两条提问串在一起）
 let session = null
 
+/**
+ * 定位豆包输入框（ProseMirror / tiptap）。
+ *
+ * 参考社区实测（掘金《用浏览器扩展自动化采集 AI 平台回答》）：
+ * 改版后 aria-label="发消息" 已消失，placeholder 移到了内部 <p> 的
+ * data-placeholder 上，因此按以下优先级定位：
+ *   1. [data-testid="chat_input"] 内的 contenteditable
+ *   2. 含 data-placeholder*="发消息" 的元素，取其最近的 contenteditable 祖先
+ *   3. 页面上唯一可见的 .ProseMirror[contenteditable="true"]
+ */
 function findComposer() {
     const input = document.querySelector(CHAT_INPUT_SEL)
     const scoped = input?.querySelector('[contenteditable="true"]')
     if (scoped)
         return scoped
-    return document.querySelector('.tiptap.ProseMirror') || document.querySelector('[contenteditable="true"]')
-}
 
-function insertPrompt(composer, text) {
-    composer.focus()
-    let inserted = false
-    try {
-        inserted = document.execCommand('insertText', false, text)
-    }
-    catch {
-        inserted = false
-    }
-    if (!inserted || !(composer.textContent || '').includes(text.slice(0, 8))) {
-        // 兜底：直接写 DOM 并派发输入事件（ProseMirror 会通过 MutationObserver 同步状态）
-        composer.textContent = text
-        composer.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }))
-    }
-    return (composer.textContent || '').includes(text.slice(0, 8))
-}
-
-function triggerEnter(composer) {
-    const options = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }
-    composer.dispatchEvent(new KeyboardEvent('keydown', options))
-    composer.dispatchEvent(new KeyboardEvent('keypress', options))
-    composer.dispatchEvent(new KeyboardEvent('keyup', options))
-}
-
-function clickSendButton() {
-    const input = document.querySelector(CHAT_INPUT_SEL)
-    const scopes = [input, document].filter(Boolean)
-    for (const scope of scopes) {
-        // 优先找带「发送」语义的按钮
-        const labeled = Array.from(scope.querySelectorAll('button, [role="button"]'))
-            .filter(el => /发送|send/i.test(el.getAttribute('aria-label') || ''))
-        if (labeled.length) {
-            labeled[labeled.length - 1].click()
-            return true
+    for (const node of document.querySelectorAll('[data-placeholder]')) {
+        const text = node.dataset?.placeholder || ''
+        if (text.includes('发消息') || text.includes('输入')) {
+            const editable = node.closest('[contenteditable="true"]')
+            if (editable)
+                return editable
         }
     }
+
+    const candidates = Array.from(document.querySelectorAll('.ProseMirror[contenteditable="true"]'))
+        .filter((el) => {
+            const rect = el.getBoundingClientRect()
+            return rect.width > 0 && rect.height > 0
+        })
+    if (candidates.length === 1)
+        return candidates[0]
+    if (candidates.length > 1) {
+        // 取最靠下（输入框通常在页面底部）且可见的那个
+        return candidates.sort((a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().top)[0]
+    }
+    return document.querySelector('[contenteditable="true"]')
+}
+
+/** 清空编辑器残留草稿 */
+function clearComposer(composer) {
+    composer.focus()
+    try {
+        document.execCommand('selectAll', false, null)
+        document.execCommand('delete', false, null)
+    }
+    catch {}
+    if ((composer.textContent || '').trim()) {
+        composer.textContent = ''
+        composer.dispatchEvent(new InputEvent('input', { bubbles: true }))
+    }
+}
+
+/**
+ * 同步写入文本到 ProseMirror 编辑器。
+ *
+ * 关键（社区实测踩坑）：execCommand('insertText') 之后必须补发 InputEvent，
+ * 否则 React 内部状态不更新，导致「发送按钮可用性判断出错」——
+ * 表现为按钮一直处于禁用态、点了没反应，流程静默卡死。
+ *
+ * 策略：
+ * 1. execCommand('selectAll' + 'insertText') + 补发 InputEvent
+ * 2. 直接 textContent 赋值 + InputEvent（ProseMirror MutationObserver 会同步）
+ */
+function insertText(composer, text) {
+    composer.focus()
+    try {
+        document.execCommand('selectAll', false, null)
+        document.execCommand('insertText', false, text)
+    }
+    catch {}
+    // 无论走哪条路径都补发 InputEvent，让 React 感知内容变化
+    try {
+        composer.dispatchEvent(new InputEvent('input', {
+            bubbles: true,
+            cancelable: false,
+            inputType: 'insertText',
+            data: text,
+        }))
+    }
+    catch {}
+
+    if ((composer.textContent || '').includes(text.slice(0, Math.min(10, text.length))))
+        return 'execCommand'
+
+    // 兜底：直接 DOM 写入
+    composer.textContent = text
+    try {
+        composer.dispatchEvent(new InputEvent('input', {
+            bubbles: true,
+            cancelable: false,
+            inputType: 'insertText',
+            data: text,
+        }))
+    }
+    catch {}
+
+    if ((composer.textContent || '').includes(text.slice(0, Math.min(10, text.length))))
+        return 'dom'
+    return null
+}
+
+function dispatchEnter(el) {
+    const opts = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }
+    el.dispatchEvent(new KeyboardEvent('keydown', opts))
+    el.dispatchEvent(new KeyboardEvent('keypress', opts))
+    el.dispatchEvent(new KeyboardEvent('keyup', opts))
+}
+
+/**
+ * 查找「发送」按钮。
+ *
+ * 社区实测的关键坑（掘金《用浏览器扩展自动化采集 AI 平台回答》）：
+ * 豆包的发送按钮和语音按钮外观几乎一样（都是圆形、无文字、无 aria-label），
+ * 区别是发送按钮带高亮底色类名 `bg-dbx-fill-highlight`，空输入时显示的是
+ * `bg-transparent` 的语音按钮。点错语音按钮既不发送也不报错，流程静默卡死。
+ *
+ * 因此这里按以下优先级识别，且**要求按钮真的可用**（有字后才出现/可用）：
+ *   1. 带「发送/send」aria-label 的按钮
+ *   2. 类名含 bg-dbx-fill-highlight 的按钮（豆包发送键的高亮底色）
+ *   3. 输入区内最右侧、未禁用、可见的按钮
+ * 找不到时返回 null（调用方继续轮询等待，而不是乱点）。
+ */
+function findSendButton(composer) {
+    const input = document.querySelector(CHAT_INPUT_SEL)
+    const scopes = [input, composer?.closest('div[class*="input"], div[class*="editor"]'), document].filter(Boolean)
+
+    for (const scope of scopes) {
+        // 1) aria-label 语义锚点
+        for (const btn of scope.querySelectorAll('button, [role="button"]')) {
+            if (btn.disabled)
+                continue
+            if (/发送|send/i.test(btn.getAttribute('aria-label') || ''))
+                return btn
+        }
+        // 2) 豆包发送键的高亮底色类名
+        for (const btn of scope.querySelectorAll('button, [role="button"]')) {
+            if (btn.disabled)
+                continue
+            if (btn.className && typeof btn.className === 'string' && btn.className.includes('bg-dbx-fill-highlight'))
+                return btn
+        }
+    }
+
+    // 3) 兜底：输入区内最右侧可用按钮
     if (!input)
-        return false
-    // 兜底：输入框内最右侧的可用按钮（输入文字后麦克风会变成发送键）
+        return null
     const buttons = Array.from(input.querySelectorAll('button'))
         .filter(el => !el.disabled && el.getBoundingClientRect().width > 0)
         .sort((a, b) => b.getBoundingClientRect().left - a.getBoundingClientRect().left)
-    if (buttons.length) {
-        buttons[0].click()
-        return true
-    }
-    return false
+    return buttons[0] || null
 }
 
-// 用 DataTransfer 把附件注入豆包隐藏的文件输入框，
-// 之后的 prepare_upload / TOS 上传都由豆包页面自己签名完成。
 function injectAttachments(attachments) {
     const input = document.querySelector('input[type="file"]')
     if (!input)
@@ -95,9 +187,7 @@ function injectAttachments(attachments) {
                 bytes[index] = binary.charCodeAt(index)
             transfer.items.add(new File([bytes], item.name || 'attachment', { type: item.mime || 'application/octet-stream' }))
         }
-        catch {
-            // 单个附件解码失败则跳过
-        }
+        catch {}
     }
     if (!transfer.items.length)
         return false
@@ -106,7 +196,6 @@ function injectAttachments(attachments) {
     return true
 }
 
-// 附件是否已经出现在输入区（缩略图或文件名芯片）
 function attachmentsVisible(names) {
     const area = document.querySelector(CHAT_INPUT_SEL)?.closest('div')?.parentElement || document.body
     try {
@@ -153,6 +242,13 @@ function startRun(prompt, port, attachments = []) {
         state.finished = true
         session = null
         observer?.disconnect()
+        // 失败时清掉残留草稿，避免污染下一轮
+        try {
+            const composer = findComposer()
+            if (composer)
+                clearComposer(composer)
+        }
+        catch {}
         port.postMessage({ type: 'error', message })
     }
     const finishDone = () => {
@@ -166,81 +262,148 @@ function startRun(prompt, port, attachments = []) {
     state.finishError = finishError
     state.finishDone = finishDone
 
+    // 发送成功的判据：用户消息节点数增加（比 SEND_SEL 更可靠，
+    // 因为豆包的发送键在发送后会被移除/替换，计数可能不变）
+    const userMsgCount = () => document.querySelectorAll(SEND_SEL).length
+    const replyCount = () => document.querySelectorAll(RECEIVE_SEL).length
+    const sent = () => userMsgCount() > state.sentBefore || replyCount() > state.recvBefore
+
     function tick() {
         if (state.finished)
             return
         const elapsed = Date.now() - state.phaseAt
+
+        // ---- 等待编辑器就绪 ----
         if (state.phase === 'wait-composer') {
             const composer = findComposer()
             if (!composer) {
                 if (elapsed > 20000)
-                    finishError('豆包页面未就绪：请确认该浏览器已登录 www.doubao.com（扩展会在后台打开一个豆包标签页）')
+                    finishError('豆包页面未就绪：请确认已登录 www.doubao.com（扩展会自动打开豆包标签页）')
                 return
             }
-            state.sentBefore = document.querySelectorAll(SEND_SEL).length
-            state.recvBefore = document.querySelectorAll(RECEIVE_SEL).length
             if (state.attachmentList.length) {
-                // 先注入附件，等豆包自己上传完成再发送
                 if (!injectAttachments(state.attachmentList)) {
-                    finishError('无法向豆包添加附件，请重试或在豆包标签页手动刷新后再次提问')
+                    finishError('无法向豆包添加附件，请刷新豆包标签页后重试')
                     return
                 }
                 state.phase = 'wait-upload'
                 state.phaseAt = Date.now()
                 return
             }
-            if (!insertPrompt(composer, prompt)) {
-                finishError('无法写入豆包输入框，请在豆包标签页刷新后重试')
+            // 无附件：写入文本并触发发送
+            clearComposer(composer)
+            const method = insertText(composer, state.prompt)
+            if (!method) {
+                finishError('无法写入豆包输入框，请刷新豆包标签页后重试')
                 return
             }
-            triggerEnter(composer)
+            // 发送按钮是输入文字后由 React 动态插入的节点（社区实测约 400ms 就位），
+            // 因此不在这里立刻点，而是进入 confirm-send 阶段轮询等待它出现。
+            state.sentBefore = document.querySelectorAll(SEND_SEL).length
+            state.recvBefore = document.querySelectorAll(RECEIVE_SEL).length
             state.phase = 'confirm-send'
             state.phaseAt = Date.now()
             return
         }
+
+        // ---- 附件上传中：等缩略图/文件名出现（或超时）后再写入问题 ----
         if (state.phase === 'wait-upload') {
-            // 附件出现（缩略图/文件名）或超时兜底后，继续写入问题并发送
-            if (attachmentsVisible(state.attachmentNames) || elapsed > 6000) {
-                const composer = findComposer()
-                if (!composer) {
-                    finishError('豆包页面未就绪：找不到输入框')
-                    return
-                }
-                state.sentBefore = document.querySelectorAll(SEND_SEL).length
-                state.recvBefore = document.querySelectorAll(RECEIVE_SEL).length
-                if (!insertPrompt(composer, prompt)) {
-                    finishError('无法写入豆包输入框，请在豆包标签页刷新后重试')
-                    return
-                }
-                triggerEnter(composer)
-                state.phase = 'confirm-send'
-                state.phaseAt = Date.now()
+            const uploaded = attachmentsVisible(state.attachmentNames)
+            if (!uploaded && elapsed < 8000)
+                return
+            const composer = findComposer()
+            if (!composer) {
+                finishError('豆包页面未就绪：找不到输入框')
+                return
             }
+            clearComposer(composer)
+            if (!insertText(composer, state.prompt)) {
+                finishError('无法写入豆包输入框，请刷新豆包标签页后重试')
+                return
+            }
+            state.sentBefore = document.querySelectorAll(SEND_SEL).length
+            state.recvBefore = document.querySelectorAll(RECEIVE_SEL).length
+            state.phase = 'confirm-send'
+            state.phaseAt = Date.now()
             return
         }
+
+        // ---- 确认消息已发出 ----
+        // 社区实测：发送按钮是输入文字后由 React 动态插入的节点（约 400ms 就位），
+        // 必须轮询等待它出现再点击，不能一次性查询后盲点（会点到语音按钮）。
         if (state.phase === 'confirm-send') {
-            if (document.querySelectorAll(SEND_SEL).length > state.sentBefore) {
+            // 已发出（出现新的用户消息节点）
+            if (sent()) {
                 state.phase = 'wait-reply'
                 state.phaseAt = Date.now()
                 return
             }
-            if (elapsed > 2500) {
-                clickSendButton()
-                state.phase = 'confirm-send-click'
+            const composer = findComposer()
+            const btn = composer ? findSendButton(composer) : null
+            if (btn) {
+                btn.click()
+                state.clickedAt = Date.now()
+                state.phase = 'confirm-send-btn'
                 state.phaseAt = Date.now()
+                return
+            }
+            // 按钮还没出现：等（最多 6 秒，超过说明输入框状态异常）
+            if (elapsed > 6000) {
+                // 最后手段：模拟 Enter
+                if (composer) {
+                    composer.focus()
+                    dispatchEnter(composer)
+                    state.phase = 'confirm-send-retry'
+                    state.phaseAt = Date.now()
+                }
+                else {
+                    finishError('豆包消息未能发送（找不到输入框），请刷新豆包标签页后重试')
+                }
             }
             return
         }
-        if (state.phase === 'confirm-send-click') {
-            if (document.querySelectorAll(SEND_SEL).length > state.sentBefore) {
+        if (state.phase === 'confirm-send-btn') {
+            if (sent()) {
                 state.phase = 'wait-reply'
                 state.phaseAt = Date.now()
                 return
             }
-            if (elapsed > 6000)
+            // 点过一次但没发出：再等按钮可用后重试一次
+            if (elapsed > 2000) {
+                const composer = findComposer()
+                const btn = composer ? findSendButton(composer) : null
+                if (btn && Date.now() - (state.clickedAt || 0) > 800) {
+                    btn.click()
+                    state.clickedAt = Date.now()
+                    state.phaseAt = Date.now()
+                    return
+                }
+                if (elapsed > 5000) {
+                    if (composer) {
+                        composer.focus()
+                        dispatchEnter(composer)
+                        state.phase = 'confirm-send-retry'
+                        state.phaseAt = Date.now()
+                    }
+                    else {
+                        finishError('豆包消息未能发送（页面异常），请刷新豆包标签页后重试')
+                    }
+                }
+            }
+            return
+        }
+        if (state.phase === 'confirm-send-retry') {
+            if (sent()) {
+                state.phase = 'wait-reply'
+                state.phaseAt = Date.now()
+                return
+            }
+            if (elapsed > 8000)
                 finishError('豆包消息未能发送（可能输入框被占用），请刷新豆包标签页后重试')
             return
         }
+
+        // ---- 等待回答节点出现 ----
         if (state.phase === 'wait-reply') {
             const nodes = document.querySelectorAll(RECEIVE_SEL)
             if (nodes.length > state.recvBefore) {
@@ -250,9 +413,11 @@ function startRun(prompt, port, attachments = []) {
                 return
             }
             if (elapsed > 90000)
-                finishError('豆包没有开始回答：可能需要在豆包标签页里完成安全验证（如有滑块）后重试')
+                finishError('豆包没有开始回答：可能需要在豆包标签页里完成安全验证后重试')
             return
         }
+
+        // ---- 流式读取回答 ----
         if (state.phase === 'stream') {
             const el = state.replyEl
             if (!el || !el.isConnected) {
@@ -272,7 +437,6 @@ function startRun(prompt, port, attachments = []) {
                         port.postMessage({ type: 'delta', delta })
                 }
                 else {
-                    // 文本被重写（少见）：增量协议无法回退，靠 done 的完整文本兜底
                     port.postMessage({ type: 'status', note: 'reply-rewritten' })
                 }
                 state.last = text
@@ -289,9 +453,8 @@ function startRun(prompt, port, attachments = []) {
                 finishDone()
                 return
             }
-            if (Date.now() - state.startedAt > 180000) {
+            if (Date.now() - state.startedAt > 180000)
                 finishDone()
-            }
         }
     }
     state.tick = tick
@@ -299,7 +462,6 @@ function startRun(prompt, port, attachments = []) {
     observer.observe(document.body, { childList: true, subtree: true, characterData: true })
 
     tick()
-    // 兜底：即使页面完全没有 DOM 变化，也用本地定时器（前 5 分钟不被节流）推进
     const localTimer = setInterval(() => {
         if (state.finished) {
             clearInterval(localTimer)

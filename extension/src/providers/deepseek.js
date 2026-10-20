@@ -435,27 +435,39 @@ export async function deepseekChat({ messages, thinking = false, attachments = [
             signal,
         })
 
-        if (response.status === 401 || response.status === 403)
+        if (response.status === 401 || response.status === 403) {
+            // accessToken 可能刚好过期：清缓存，下一轮重新换 token
+            cachedAccessToken = null
+            cachedAccessTokenExpireAt = 0
             throw new Error('DeepSeek 登录已失效，请重新登录 chat.deepseek.com 后重试')
+        }
         if (!response.ok)
             throw new Error(['DeepSeek 补全接口 HTTP', response.status].join(' '))
 
         return await consumeCompletionStream(response, onDelta)
     }
 
+    // 服务器繁忙（backend_err）是间歇性的：指数退避重试最多 3 次
+    // （2.5s → 5s → 8s）。每次重试都重新申请 PoW 挑战，避免挑战过期。
+    const MAX_ATTEMPTS = 3
+    let lastError = null
     try {
-        try {
-            return await attemptCompletion()
+        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            try {
+                return await attemptCompletion()
+            }
+            catch (error) {
+                lastError = error
+                const message = error?.message || ''
+                const retryable = /服务器繁忙/.test(message)
+                if (!retryable || signal?.aborted || attempt === MAX_ATTEMPTS)
+                    throw error
+                await new Promise(resolve => setTimeout(resolve, attempt * 2500))
+                if (signal?.aborted)
+                    throw new Error('本地直连请求已取消')
+            }
         }
-        catch (error) {
-            // 服务器繁忙（backend_err）是间歇性的：稍等后用新挑战自动重试一次
-            if (!/服务器繁忙/.test(error?.message || '') || signal?.aborted)
-                throw error
-            await new Promise(resolve => setTimeout(resolve, 2500))
-            if (signal?.aborted)
-                throw new Error('本地直连请求已取消')
-            return await attemptCompletion()
-        }
+        throw lastError
     }
     finally {
         deleteChatSession(accessToken, sessionId)

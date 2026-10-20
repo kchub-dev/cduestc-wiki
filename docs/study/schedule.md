@@ -8,6 +8,12 @@ author: [muzimu217]
 
 ![校历](/public/xiaoli.png)
 
+::: tip 官方来源
+校历来自学校教务处，若图片未及时更新或需查看原始通知，请访问：
+- [教务处官网](https://www.cduestc.cn/jiaowuchu/) — 校历、考试安排、教学通知
+- [学校通知公告总入口](https://www.cduestc.cn/newsinternet/init_1030100/list2tong1zhi1gong1gao41030110)
+:::
+
 ## 作息时间表
 
 | 事项               | 时间          |
